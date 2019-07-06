@@ -1,23 +1,23 @@
 # InvTF
-Train invertible generative models using the simplicity of Keras.
+Train invertible generative models using the simplicity of Keras (aka normalizing flows).
 
 <b>Example:</b> Invertible Residual Networks.  
 
 ```
-from invtf import Flow, InvResNet, faces
+from invtf import Generator, InvResNet, faces
 
-flow = Flow()
+gen = Generator()
 
 for _ in range(10): 
-    flow.add(InvResNet())
+    gen.add(InvResNet())
 
-flow.compile()
-flow.fit(faces())
+gen.compile()
+gen.fit(faces())
 ```
 
 <img src="faces.png">
 
-Most recent reversible generative model [1,2,3,4] have been <a href="">reproduced</a> in InvTF. Pretrained models are automatically downloaded when needed.
+Most recent invertible generative model [1,2,3,4] have been <a href="">reproduced</a> in InvTF. Pretrained models are automatically downloaded when needed.
 
 <b>Example</b>: Use pretrained model.
 
@@ -34,4 +34,5 @@ glow.generate(10)
 
 Please see our <a href="">tutorial</a> and <a href="">documentation</a> for more information. 
 
-TLDR: Easily train reversible generative models with 
+TLDR: Easily train reversible generative models with ten
+
