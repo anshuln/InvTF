@@ -3,15 +3,17 @@ Train invertible generative models using the simplicity of Keras.
 
 <b>Example:</b> Invertible Residual Networks.  
 
-```from invtf import Flow, InvResNet, faces
+```
+from invtf import Flow, InvResNet, faces
 
 flow = Flow()
 
 for _ in range(10): 
-flow.add(InvResNet())
+    flow.add(InvResNet())
 
 flow.compile()
-flow.fit(faces())```
+flow.fit(faces())
+```
 
 <img src="faces.png">
 
@@ -19,11 +21,13 @@ Most recent reversible generative model [1,2,3,4] have been <a href="">reproduce
 
 <b>Example</b>: Use pretrained model.
 
-```from flowtf import Glow
+```
+from invtf import Glow
 
 glow.interpolate(faces()[0], faces()[1])
 
-glow.generate(10)```
+glow.generate(10)
+```
 
 <img src="interpolate.png">
 <img src="generated.png">
