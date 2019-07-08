@@ -20,7 +20,8 @@ def visualize_training_2D(g, X):
 			lg_latent	.append(history.history['lg_latent'])
 
 		X		= X
-		fakeX 	= g.predict_inv(np.random.normal(0, 1, size=(1000, 2)))
+
+		fakeX 	= g.sample(n=1000)
 
 		encX	= g.predict(X)
 		realZ	= np.random.normal(0, 1, size=(1000, 2))
