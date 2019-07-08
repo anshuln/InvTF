@@ -1,19 +1,24 @@
 import tensorflow as tf
 import tensorflow.keras as keras 
+import numpy as np
+from tensorflow.keras.layers import ReLU
 
 class Linear(keras.layers.Layer): 
+
+	def __init__(self, **kwargs): super(Linear, self).__init__(**kwargs)
 
 	def build(self, input_shape): 
 
 		assert len(input_shape) == 2
-		print(input_shape)
 		_, d = input_shape
 
-		self.W = self.add_weight(shape=(d, d), 	initializer='identity')
-		self.b = self.add_weight(shape=(d), 	initializer='zero')
+		self.W = self.add_weight(shape=(d, d), 	initializer='identity', name="linear_weight")
+		self.b = self.add_weight(shape=(d), 	initializer='zero',		name="linear_bias")
+		
+		super(Linear, self).build(input_shape)
+		self.built = True
 
 	def call(self, X): 		return X @ self.W + self.b 
-
 
 	def call_inv(self, Z):  return (Z - self.b) @ tf.linalg.inv(self.W)
 
@@ -21,21 +26,27 @@ class Linear(keras.layers.Layer):
 
 	def log_det(self): 		return tf.math.log(tf.abs(tf.linalg.det(self.jacobian())))
 
+	def compute_output_shape(self, input_shape): 
+		self.output_shape = input_shape
+		return input_shape
 
 
 class Affine(keras.layers.Layer): 
 
+	def __init__(self, **kwargs): super(Affine, self).__init__(**kwargs)
+
 	def build(self, input_shape): 
 
 		assert len(input_shape) == 2
-		print(input_shape)
 		_, d = input_shape
 
-		self.w = self.add_weight(shape=(d), 	initializer='ones') 
-		self.b = self.add_weight(shape=(d), 	initializer='zero')
+		self.w = self.add_weight(shape=(d), 	initializer='ones', name="affine_scale") 
+		self.b = self.add_weight(shape=(d), 	initializer='zero', name="affine_bias")
+
+		super(Affine, self).build(input_shape)
+		self.built = True
 
 	def call(self, X): 		return X * self.w + self.b 
-
 
 	def call_inv(self, Z):  return (Z - self.b) / self.w
 
@@ -45,6 +56,128 @@ class Affine(keras.layers.Layer):
 
 	def log_det(self): 		return tf.reduce_sum(tf.math.log(tf.abs(self.eigenvalues())))
 
+	def compute_output_shape(self, input_shape): 
+		self.output_shape = input_shape
+		return input_shape
+
+
+
+
+class EvenOddStrategy(): 
+
+	def split(self, X): 
+		self.shape = tf.shape(X)
+		x0		= X[:, ::2]
+		x1		= X[:, 1::2]
+		return x0, x1
+
+	def combine(self, x0, x1): 
+		return tf.reshape(tf.stack([x0, x1], axis=-1), [-1, 28**2])
+
+class SplitOnHalfStrategy(): 
+	
+	def split(self, X): 
+		d = tf.shape(X)[1]
+		x0 		= X[:, :d//2]
+		x1 		= X[:, d//2:]
+		return x0, x1
+
+	def combine(self, x0, x1): 
+		return tf.concat((x0, x1), axis=1)
+
+
+"""
+	For simplicity we vectorize input and apply coupling to even/odd entries. 
+	Could also use upper/lower. Refactor this to support specifying the pattern as a parameter. 
+
+	TODO: 
+		Potentially refactor so we can add directly to AdditiveCoupling instead of creating 'm'
+		by (potentially adding to Sequential) and passing this on to AdditiveCoupling. 
+		The main issue is AdditiveCoupling is R^2-> R^2 while m:R^1->R^1, so if we 
+		add directly to AdditiveCoupling we run into issues with miss matching dimensions. 
+	
+"""
+class AdditiveCoupling(keras.Sequential): 
+
+	unique_id = 1
+
+	def __init__(self, part=0, strategy=SplitOnHalfStrategy()): # strategy: alternate / split  ;; alternate does odd/even, split has upper/lower. 
+		super(AdditiveCoupling, self).__init__(name="add_coupling_%i"%AdditiveCoupling.unique_id)
+		AdditiveCoupling.unique_id += 1
+		self.part 	= part 
+		self.strategy = strategy
+
+
+	def build(self, input_shape):
+
+		for layer in self.layers: 
+			layer.build(input_shape=(None, 28**2//2))
+
+	def call_(self, X): 
+		for layer in self.layers: 
+			X = layer.call(X)
+		return X
+
+	def call(self, X): 		
+		shape 	= tf.shape(X)
+		d 		= tf.reduce_prod(shape[1:])
+		X 		= tf.reshape(X, (shape[0], d))
+
+		x0, x1 = self.strategy.split(X)
+
+		if self.part == 0: x0 		= x0 + self.call_(x1)
+		if self.part == 1: x1 		= x1 + self.call_(x0)
+
+		X = self.strategy.combine(x0, x1)
+
+		X 		= tf.reshape(X, shape)
+		return X
+
+	def call_inv(self, Z):	 
+		shape 	= tf.shape(Z)
+		d 		= tf.reduce_prod(shape[1:])
+		Z 		= tf.reshape(Z, (shape[0], d))
+
+		z0, z1 = self.strategy.split(Z)
+		
+		if self.part == 0: z0 		= z0 - self.call_(z1)
+		if self.part == 1: z1 		= z1 - self.call_(z0)
+
+		Z = self.strategy.combine(z0, z1)
+
+		Z 		= tf.reshape(Z, shape)
+		return Z
+
+
+	def log_det(self): 		return 0. 
+
+	def compute_output_shape(self, input_shape): return input_shape
+
+
+class AffineCoupling(keras.layers.Layer):  		pass 
+
+
+# TODO: for now assumes target is +-1, refactor to support any target. 
+# Refactor 127.5 
+class Normalize(keras.layers.Layer):  # normalizes data after dequantization. 
+
+	def __init__(self, target=[-1,+1], scale=127.5, input_shape=None): 
+		super(Normalize, self).__init__(input_shape=input_shape)
+		self.target = target
+		self.d 		= 28**2
+		self.scale  = 1/127.5
+
+	def call(self, X):  
+		X 			= X * self.scale  - 1
+		return X
+
+	def call_inv(self, Z): 
+		Z = Z + 1
+		Z = Z / self.scale
+		return Z
+
+	def log_det(self): return self.d * tf.math.log(self.scale) # 28**2 * log2(2**7) 
+	
 
 
 # invertible non-linearity; coupling layer with ReLU inside. 
@@ -60,13 +193,9 @@ class CoupledReLU(keras.layers.Layer):
 
 class Inv1x1Conv(keras.layers.Layer):  pass 
 
-class VarDequantize(keras.layers.Layer):  		pass 
 
-class UniformDequantize(keras.layers.Layer): 	pass 
 
-class AdditiveCoupling(keras.layers.Layer):  	pass 
-
-class AffineCoupling(keras.layers.Layer):  		pass 
+class Coupling(keras.layers.Layer): pass # Take parameter that chooses between Affine and Additive; not sure what should be default yet. 
 
 
 class InvResNet(keras.layers.Layer): 			pass # model should automatically use gradient checkpointing if this is used. 
