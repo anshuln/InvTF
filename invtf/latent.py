@@ -11,27 +11,38 @@ import numpy as np
 """
 
 
-class Normal():  # assume no mean so far. 
+class Normal():  # assume no mean so far.  ;;; Can we make this infer dimension somehow?
 
-	def __init__(self, mean=0, std=1): 
+	def __init__(self, d, mean=0, std=1): 
+		self.d		= d
 		self.mean 	= mean
 		self.std 	= std
+		self.latent = None
 
 	def log_density(self, X): 
+		# refactor a way such that if we have X.shape != (d, ) we update d? 
 		return tf.math.reduce_sum( -1/2 * (X**2/self.std**2 + tf.math.log(2*np.pi*self.std**2)) )
 
-	def sample(self, n=1000): 
-		return tf.random.normal((n, 2), self.mean, self.std)
+	def sample(self, n=1000, fix_latent=False): 
+		if fix_latent and self.latent is None: 
+			self.latent = tf.random.normal((n, self.d), self.mean, self.std)
+		else: 
+			self.latent = tf.random.normal((n, self.d), self.mean, self.std)
+
+		self.latent = np.random.normal(0, 1, (n, self.d)).astype(np.float32)
+
+		return self.latent
 
 
 class Logistic(): # see NICE page 5 section 3.4 
 
-	def __init__(self):  pass 
+	def __init__(self, d):  
+		self.d = d
 
 	def log_density(self, X):
 		return tf.math.reduce_sum( - tf.math.log(1 + tf.exp(X)) - tf.math.log(1 + tf.exp(-X)) )
 
 	def sample(self, n=1000):	 # it seems this is not in tensorflow 2.0.0 beta
-		return np.random.logistic(0, 1, size=(1000, 2)).astype(np.float32)
+		return np.random.logistic(0, 1, size=(1000, self.d)).astype(np.float32)
 
 	
