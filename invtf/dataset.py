@@ -1,5 +1,26 @@
 import numpy as np
 import matplotlib.pyplot as plt 
+from tensorflow.keras import datasets 
+
+
+##### REAL DATA SET ### 
+
+class mnist(): 
+
+	def __init__(self, digit=-1):  # -1 => all classes
+		(self.X, y), (self.X_test, y_test) = datasets.mnist.load_data()
+		self.X = self.X.reshape(60000, 28**2).astype(np.float32)
+
+		if digit > -1: 
+			self.X      = self.X	 [y 	 == digit]
+			self.X_test = self.X_test[y_test == digit]
+		
+
+	def images(self): 
+		return self.X
+
+
+
 
 
 ############### TOY DATASET #################
@@ -7,11 +28,11 @@ import matplotlib.pyplot as plt
 # Easy
 class Normal(): 
 	def __init__(self): pass 
-	def sample(self, n=1000, mean=0, std=1): return np.random.normal(mean, std, size=(n, 2))
+	def sample(self, n=1000, mean=0, std=1): return np.random.normal(mean, std, size=(n, 2)).astype(np.float32)
 
 class Uniform(): 
 	def __init__(self): pass 
-	def sample(self, n=1000, a=0, b=1): 	return np.random.uniform(a, b, size=(n, 2))
+	def sample(self, n=1000, a=0, b=1): 	return np.random.uniform(a, b, size=(n, 2)).astype(np.float32)
 
 
 # Harder 
@@ -38,7 +59,7 @@ class Gaussians():
 		g3 = gaussian() + e2
 		g4 = gaussian() - e2
 
-		return np.concatenate((g1, g2, g3, g4), axis=0)
+		return np.concatenate((g1, g2, g3, g4), axis=0).astype(np.float32)
 
 """
 	Generate checkerboard so alternating cells having points. 
@@ -64,7 +85,7 @@ class Checkboard():
 		u7 = uniform() + e1 + e2
 		u8 = uniform() 
 
-		return np.concatenate((u1, u2, u3, u4, u5, u6, u7, u8), axis=0)
+		return np.concatenate((u1, u2, u3, u4, u5, u6, u7, u8), axis=0).astype(np.float32)
 
 
 """
@@ -90,5 +111,5 @@ class TwoSpirals():
 		y = -np.sin(n) * n
 		spiral2 =  np.concatenate((x,y), axis=1) - offset
 
-		return np.concatenate((spiral1, spiral2), axis=0)
+		return np.concatenate((spiral1, spiral2), axis=0).astype(np.float32)
 
