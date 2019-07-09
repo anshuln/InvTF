@@ -33,28 +33,41 @@ class Linear(keras.layers.Layer):
 
 class Affine(keras.layers.Layer): 
 
-	def __init__(self, **kwargs): super(Affine, self).__init__(**kwargs)
+	"""
+		The exp parameter allows the scaling to be exp(s) \odot X. 
+		This cancels out the log in the log_det computations. 
+	"""
+
+	def __init__(self, exp=False, **kwargs): 
+		self.exp = exp
+		super(Affine, self).__init__(**kwargs)
 
 	def build(self, input_shape): 
 
-		assert len(input_shape) == 2
-		_, d = input_shape
+		#assert len(input_shape) == 2
+		d = input_shape[1:]
 
-		self.w = self.add_weight(shape=(d), 	initializer='ones', name="affine_scale") 
-		self.b = self.add_weight(shape=(d), 	initializer='zero', name="affine_bias")
+		self.w = self.add_weight(shape=d, 	initializer='ones', name="affine_scale") 
+		self.b = self.add_weight(shape=d, 	initializer='zero', name="affine_bias")
 
 		super(Affine, self).build(input_shape)
 		self.built = True
 
-	def call(self, X): 		return X * self.w + self.b 
+	def call(self, X): 		
+		if self.exp: 	return X * tf.exp(self.w) + self.b 
+		else: 			return X * self.w 		  + self.b
 
-	def call_inv(self, Z):  return (Z - self.b) / self.w
+	def call_inv(self, Z):  
+		if self.exp:	return (Z - self.b) / tf.exp(self.w)
+		else: 			return (Z - self.b) / self.w
 
 	def jacobian(self):		return self.w
 
 	def eigenvalues(self): 	return self.w
 
-	def log_det(self): 		return tf.reduce_sum(tf.math.log(tf.abs(self.eigenvalues())))
+	def log_det(self): 		
+		if self.exp: 	return tf.reduce_sum(tf.abs(self.eigenvalues()))
+		else: 			return tf.reduce_sum(tf.math.log(tf.abs(self.eigenvalues())))
 
 	def compute_output_shape(self, input_shape): 
 		self.output_shape = input_shape
@@ -110,8 +123,12 @@ class AdditiveCoupling(keras.Sequential):
 
 	def build(self, input_shape):
 
-		for layer in self.layers: 
-			layer.build(input_shape=(None, 28**2//2))
+		self.layers[0].build(input_shape=(None, 28**2/2))
+		out_dim = self.layers[0].compute_output_shape(input_shape=(None, 28**2/2))
+
+		for layer in self.layers[1:]:  
+			layer.build(input_shape=out_dim)
+			out_dim = layer.compute_output_shape(input_shape=out_dim)
 
 	def call_(self, X): 
 		for layer in self.layers: 
@@ -154,7 +171,124 @@ class AdditiveCoupling(keras.Sequential):
 	def compute_output_shape(self, input_shape): return input_shape
 
 
-class AffineCoupling(keras.layers.Layer):  		pass 
+
+"""
+	The affine coupling layer is described in NICE, REALNVP and GLOW. 
+	The description in Glow use a single network to output scale s and transform t, 
+	it seems the description in REALNVP is a bit more general refering to s and t as 
+	different functions. From this perspective Glow change the affine layer to have
+	weight sharing between s and t. 
+	 Specifying a single function is a lot simpler code-wise, we thus use that approach. 
+
+
+	For now assumes the use of convolutions 
+
+"""
+class AffineCoupling(keras.Sequential):  	
+
+	unique_id = 1
+
+	def __init__(self, part=0, strategy=SplitOnHalfStrategy()): 
+		super(AffineCoupling, self).__init__(name="aff_coupling_%i"%AffineCoupling.unique_id)
+		AffineCoupling.unique_id += 1
+		self.part 		= part 
+		self.strategy 	= strategy
+
+
+	def build(self, input_shape):
+
+		# handle the issue with each network output something larger. 
+		self.layers[0].build(input_shape=(None, 28**2//2))
+		out_dim = self.layers[0].compute_output_shape(input_shape=(None, 28**2//2))
+
+		for layer in self.layers[1:]:  
+			layer.build(input_shape=out_dim)
+			out_dim = layer.compute_output_shape(input_shape=out_dim)
+
+
+	def call_(self, X): 
+		for layer in self.layers: 
+			X = layer.call(X)
+
+		# this could be done a bit smarter, probably also have a part of network learning specifically on s and t? 
+		n, d = X.shape
+		s = X[:, d//2:]
+		t = X[:, :d//2]  
+
+		return s, t
+
+	def call(self, X): 		
+		shape 	= tf.shape(X)
+		d 		= tf.reduce_prod(shape[1:])
+		X 		= tf.reshape(X, (shape[0], d))
+
+		x0, x1 = self.strategy.split(X)
+
+		if self.part == 0: 
+			s, t 	= self.call_(x1)
+			x0 		= x0*s + t
+
+		if self.part == 1: 
+			s, t 	= self.call_(x0)
+			x1 		= x1*s + t 
+
+		X 		= self.strategy.combine(x0, x1)
+		X 		= tf.reshape(X, shape)
+		return X
+
+	def call_inv(self, Z):	 
+		shape 	= tf.shape(Z)
+		d 		= tf.reduce_prod(shape[1:])
+		Z 		= tf.reshape(Z, (shape[0], d))
+
+		z0, z1 = self.strategy.split(Z)
+		
+		if self.part == 0: 
+			s, t 	= self.call_(z1)
+			z0 		= (z0 - t)/s
+		if self.part == 1: 
+			s, t 	= self.call_(z0)
+			z1 		= (z1 - t)/s
+
+		Z 		= self.strategy.combine(z0, z1)
+		Z 		= tf.reshape(Z, shape)
+		return Z
+
+
+	def log_det(self): 		 
+
+		# save 's' instead of recomputing. 
+
+		X 		= self.input
+		shape 	= tf.shape(X)
+		d 		= tf.reduce_prod(shape[1:])
+		X 		= tf.reshape(X, (shape[0], d))
+		n		= tf.dtypes.cast(tf.shape(X)[0], tf.float32)
+
+		x0, x1 = self.strategy.split(X)
+
+		if self.part == 0: 
+			s, t 	= self.call_(x1)
+		if self.part == 1: 
+			s, t 	= self.call_(x0)
+
+		return tf.reduce_sum(tf.math.log(tf.abs(s))) / n
+
+	def compute_output_shape(self, input_shape): return input_shape
+
+
+
+
+class Squeeze(keras.layers.Layer): 
+
+	def call(self, X): 
+		self.shape = tf.shape(X)
+
+
+	def call_inv(self, X): return tf.reshape(X, self.shape)
+
+		
+	def log_det(self): return 0. 
 
 
 # TODO: for now assumes target is +-1, refactor to support any target. 
@@ -165,14 +299,14 @@ class Normalize(keras.layers.Layer):  # normalizes data after dequantization.
 		super(Normalize, self).__init__(input_shape=input_shape)
 		self.target = target
 		self.d 		= 28**2
-		self.scale  = 1/127.5
+		self.scale  = 1/2**8 #1/127.5
 
 	def call(self, X):  
-		X 			= X * self.scale  - 1
+		X 			= X * self.scale  #- 1
 		return X
 
 	def call_inv(self, Z): 
-		Z = Z + 1
+		Z = Z #+ 1
 		Z = Z / self.scale
 		return Z
 
@@ -201,3 +335,21 @@ class Coupling(keras.layers.Layer): pass # Take parameter that chooses between A
 class InvResNet(keras.layers.Layer): 			pass # model should automatically use gradient checkpointing if this is used. 
 
 	 
+
+
+
+# the 3D case, refactor to make it into the general case. 
+# make experiment with nD case, maybe put reshape into it? 
+# Theoretically time is the same? 
+class CircularConv(keras.layers.Layer): 
+
+	def __init__(self, dim=3):  # 
+		self.dim = dim 
+
+	def call(self, X): 		pass
+	
+	def call_inv(self, X): 	pass
+
+	def log_det(self): 		pass
+
+
