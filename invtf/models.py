@@ -86,7 +86,54 @@ class NICE():
 
 class RealNVP(): 
 
-	def __init__(self): pass 
+	"""
+		1) Change from additive to affine coupling layer: DONE. 
+			It seems log computations are fine, but there might be a few issues. 
+
+		3) implement squeeze (try different ones)
+		
+		4) Implement multi-scale architecture. 
+
+		2) Change from dense to residual conv net with ??bnorm???
+
+		Differences: 
+			The implementation follows GLOW, so there is not exp in the scaling. 
+
+		Further development: 
+		- Do progressive kind of training? 
+
+	"""
+
+	def mnist(X):  
+		# assumes X is a numpy array. 
+		n 		= X.shape[0]
+		shape 	= X.shape[1:]
+		d   	= np.prod(shape)
+
+		g = Generator(latent.Normal(d)) 
+
+		# Pre-process steps. 
+		g.add(UniformDequantize	(input_shape=shape)) 
+		g.add(Normalize			(input_shape=shape))
+
+		# Build model using additive coupling layers. 
+		for i in range(0, 4): 
+
+			ac = AffineCoupling(part=i%2, strategy=EvenOddStrategy())
+			ac.add(Dense(1000, activation="relu", bias_initializer="zeros", kernel_initializer="zeros"))
+			ac.add(Dense(1000, activation="relu", bias_initializer="zeros", kernel_initializer="zeros"))
+			ac.add(Dense(d, bias_initializer="ones"))  # zero initialization has scale kill everything => not invertible. 
+
+			g.add(ac) 
+
+		g.add(Affine(exp=True))
+
+		g.compile(optimizer=keras.optimizers.Adam(0.001, beta_1=0.9, beta_2=0.01, epsilon=10**(-4)))
+
+		g.predict(X[:2])
+
+		return g
+
 
 
 class Glow(): 
