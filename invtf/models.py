@@ -33,6 +33,8 @@ class NICE():
 			It is not clear if they normalize to [0,1] first and then add 1/256, or they add 1/256 to the {0,1,2,...,2**8-1}. 
 			I added U(0,1) to {0,1,2,...,2**8-1} as outlined in the flow++ article. 
 
+			Currently not sure how they have output layer of all coupling networks; do they just have d//2 linear output neurons? 
+
 
 		Lacking information:
 			- No batch size is reported. 
@@ -64,10 +66,10 @@ class NICE():
 		for i in range(0, 4): 
 
 			ac = AdditiveCoupling(part=i%2, strategy=EvenOddStrategy())
-			ac.add(Dense(d//2, activation="relu", bias_initializer="zeros", kernel_initializer="zeros")) 
-			ac.add(Dense(d//2, activation="relu", bias_initializer="zeros", kernel_initializer="zeros"))
-			ac.add(Dense(d//2, activation="relu", bias_initializer="zeros", kernel_initializer="zeros"))
-			ac.add(Dense(d//2, activation="relu", bias_initializer="zeros", kernel_initializer="zeros"))
+			ac.add(Dense(1000, activation="relu", bias_initializer="zeros", kernel_initializer="zeros")) 
+			ac.add(Dense(1000, activation="relu", bias_initializer="zeros", kernel_initializer="zeros"))
+			ac.add(Dense(1000, activation="relu", bias_initializer="zeros", kernel_initializer="zeros"))
+			ac.add(Dense(1000, activation="relu", bias_initializer="zeros", kernel_initializer="zeros"))
 			ac.add(Dense(d//2, bias_initializer="zeros")) 
 
 			g.add(ac) 
