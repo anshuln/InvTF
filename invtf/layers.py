@@ -3,6 +3,14 @@ import tensorflow.keras as keras
 import numpy as np
 from tensorflow.keras.layers import ReLU
 
+"""
+	Known issue with multi-scale architecture. 
+	
+	The log-det computations normalizes wrt full dimension. 
+	
+
+"""
+
 class Linear(keras.layers.Layer): 
 
 	def __init__(self, **kwargs): super(Linear, self).__init__(**kwargs)
@@ -75,6 +83,25 @@ class Affine(keras.layers.Layer):
 
 
 
+
+class ConvStrategy(): 
+	"""
+		Takes either half cols / rows in an image. 
+		How do we do combien step in a smart way? 
+
+		for now just take cols. 
+	"""
+
+	def split(self, X): 
+		self.shape = tf.shape(X)
+		d = X.shape[2]
+		x0		= X[:, :, :d//2, :]
+		x1		= X[:, :, d//2:, :] 
+		return x0, x1
+
+	def combine(self, x0, x1): 
+		return tf.concat((x0, x1), axis=2)
+	
 
 class EvenOddStrategy(): 
 
@@ -198,29 +225,40 @@ class AffineCoupling(keras.Sequential):
 	def build(self, input_shape):
 
 		# handle the issue with each network output something larger. 
-		self.layers[0].build(input_shape=(None, 28**2//2))
-		out_dim = self.layers[0].compute_output_shape(input_shape=(None, 28**2//2))
+		_, h, w, c = input_shape
+
+		print(input_shape)
+		print(h, w//c, c)
+		self.layers[0].build(input_shape=(None, h, w//2, c))
+		out_dim = self.layers[0].compute_output_shape(input_shape=(None, h, w//2, c))
 
 		for layer in self.layers[1:]:  
+			print(layer, out_dim)
 			layer.build(input_shape=out_dim)
 			out_dim = layer.compute_output_shape(input_shape=out_dim)
+		print("DONE: ", out_dim)
+
 
 
 	def call_(self, X): 
+
+		in_shape = tf.shape(X)
+
 		for layer in self.layers: 
 			X = layer.call(X)
 
-		# this could be done a bit smarter, probably also have a part of network learning specifically on s and t? 
-		n, d = X.shape
-		s = X[:, d//2:]
-		t = X[:, :d//2]  
+
+		# TODO: Could have a part of network learned specifically for s,t to not ONLY have wegith sharing? 
+		d = tf.shape(X)[2]
+		s = X[:, :, d//2:, :]
+		t = X[:, :, :d//2, :]  
+		print(s.shape, t.shape, in_shape)
+		s = tf.reshape(s, in_shape)
+		t = tf.reshape(t, in_shape)
 
 		return s, t
 
 	def call(self, X): 		
-		shape 	= tf.shape(X)
-		d 		= tf.reduce_prod(shape[1:])
-		X 		= tf.reshape(X, (shape[0], d))
 
 		x0, x1 = self.strategy.split(X)
 
@@ -233,14 +271,9 @@ class AffineCoupling(keras.Sequential):
 			x1 		= x1*s + t 
 
 		X 		= self.strategy.combine(x0, x1)
-		X 		= tf.reshape(X, shape)
 		return X
 
 	def call_inv(self, Z):	 
-		shape 	= tf.shape(Z)
-		d 		= tf.reduce_prod(shape[1:])
-		Z 		= tf.reshape(Z, (shape[0], d))
-
 		z0, z1 = self.strategy.split(Z)
 		
 		if self.part == 0: 
@@ -251,7 +284,6 @@ class AffineCoupling(keras.Sequential):
 			z1 		= (z1 - t)/s
 
 		Z 		= self.strategy.combine(z0, z1)
-		Z 		= tf.reshape(Z, shape)
 		return Z
 
 
@@ -260,10 +292,7 @@ class AffineCoupling(keras.Sequential):
 		# save 's' instead of recomputing. 
 
 		X 		= self.input
-		shape 	= tf.shape(X)
-		d 		= tf.reduce_prod(shape[1:])
-		X 		= tf.reshape(X, (shape[0], d))
-		n		= tf.dtypes.cast(tf.shape(X)[0], tf.float32)
+		n 		= tf.dtypes.cast(tf.shape(X)[0], tf.float32)
 
 		x0, x1 = self.strategy.split(X)
 
@@ -279,14 +308,21 @@ class AffineCoupling(keras.Sequential):
 
 
 
+"""
+	Try different techniques: I'm implementing the simplest case, just reshape to desired shape. 
+	TODO: Implement the following Squeeze strategies: 
+		- RealNVP
+		- Downscale images, e.g. alternate pixels and have 4 lower dim images and stack them. 
+		- ... 
+"""
 class Squeeze(keras.layers.Layer): 
 
 	def call(self, X): 
-		self.shape = tf.shape(X)
+		n, self.w, self.h, self.c = X.shape
+		return tf.reshape(X, [-1, self.w//2, self.h//2, self.c*4])
 
-
-	def call_inv(self, X): return tf.reshape(X, self.shape)
-
+	def call_inv(self, X): 
+		return tf.reshape(X, [-1, self.w, self.h, self.c])
 		
 	def log_det(self): return 0. 
 
@@ -314,6 +350,27 @@ class Normalize(keras.layers.Layer):  # normalizes data after dequantization.
 	
 
 
+
+class MultiScale(keras.layers.Layer): 
+
+	def call(self, X): 
+		n, w, h, c = X.shape
+		Z = X[:, :, :, :c//2]
+		X = X[:, :, :, c//2:]
+		return X, Z
+	
+	def call_inv(self, X, Z): 
+		return tf.concat((X, Z), axis=-1)
+
+
+	def compute_output_shape(self, input_shape): 
+		n, h, w, c = input_shape
+		return (n, h, w, c//2)
+
+	def log_det(self): return 0.
+
+
+
 # invertible non-linearity; coupling layer with ReLU inside. 
 # for now coupling layer just splits on last dimension for simplicity
 # the last dimension is assumed to be even. 
@@ -325,7 +382,8 @@ class CoupledReLU(keras.layers.Layer):
 
 	def log_det(self): 			return 0
 
-class Inv1x1Conv(keras.layers.Layer):  pass 
+class Inv1x1Conv(keras.layers.Layer):  
+	pass # Use decomposition in original article and that of emergin convolutions. 
 
 
 
