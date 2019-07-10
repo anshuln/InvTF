@@ -6,7 +6,7 @@ from invtf.dequantize 	import *
 from tensorflow			import keras
 from tensorflow.keras 	import Sequential
 
-from tensorflow.keras.layers import ReLU, Dense
+from tensorflow.keras.layers import ReLU, Dense, Flatten, Reshape, Conv2D
 from tensorflow.keras.models import Sequential
 
 import invtf.latent as latent
@@ -89,6 +89,8 @@ class RealNVP():
 	"""
 		1) Change from additive to affine coupling layer: DONE. 
 			It seems log computations are fine, but there might be a few issues. 
+			!!! The permutation is very simple compared to channel-wise masking / spatial checkerboard.
+			TODO: implement channel-wise masking + spatial checkerboard. 
 
 		3) implement squeeze (try different ones)
 		
@@ -105,30 +107,44 @@ class RealNVP():
 	"""
 
 	def mnist(X):  
-		# assumes X is a numpy array. 
-		n 		= X.shape[0]
-		shape 	= X.shape[1:]
-		d   	= np.prod(shape)
+		# assumes X is a numpy array of size (60000, 28, 28 , 1)
+		d   	= np.prod(28**2)
+		input_shape = (28, 28, 1)
 
 		g = Generator(latent.Normal(d)) 
 
 		# Pre-process steps. 
-		g.add(UniformDequantize	(input_shape=shape)) 
-		g.add(Normalize			(input_shape=shape))
+		g.add(UniformDequantize	(input_shape=input_shape)) 
+		g.add(Normalize			(input_shape=input_shape))
+
+		h, w, c = 28, 28, 1
 
 		# Build model using additive coupling layers. 
-		for i in range(0, 4): 
+		for i in range(0, 2): 
 
-			ac = AffineCoupling(part=i%2, strategy=EvenOddStrategy())
-			ac.add(Dense(1000, activation="relu", bias_initializer="zeros", kernel_initializer="zeros"))
-			ac.add(Dense(1000, activation="relu", bias_initializer="zeros", kernel_initializer="zeros"))
-			ac.add(Dense(d, bias_initializer="ones"))  # zero initialization has scale kill everything => not invertible. 
+			for j in range(2): 
+				print("--- %i : %i --_"%(i,j))
 
-			g.add(ac) 
+				ac = AffineCoupling(part=j%2, strategy=ConvStrategy()) 
+				ac.add(Conv2D(32, kernel_size=(3,3), activation="relu"))
+				ac.add(Flatten())
+				ac.add(Dense(d, bias_initializer="ones"))
+				ac.add(Reshape((h, w, c)))
 
-		g.add(Affine(exp=True))
+				g.add(ac) 
 
-		g.compile(optimizer=keras.optimizers.Adam(0.001, beta_1=0.9, beta_2=0.01, epsilon=10**(-4)))
+			
+			g.add(Squeeze())
+			h, w, c = h//2, w//2, c*4
+
+			if i == 0: 
+				g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
+				d = d//2
+				c = c//2
+
+		#g.add(Affine(exp=True))
+
+		g.compile(optimizer=keras.optimizers.Adam(0.0001))
 
 		g.predict(X[:2])
 
