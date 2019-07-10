@@ -24,25 +24,26 @@ class Normal():  # assume no mean so far.  ;;; Can we make this infer dimension 
 		return tf.math.reduce_sum( -1/2 * (X**2/self.std**2 + tf.math.log(2*np.pi*self.std**2)) )
 
 	def sample(self, n=1000, fix_latent=False): 
-		if fix_latent and self.latent is None: 
-			self.latent = tf.random.normal((n, self.d), self.mean, self.std)
-		else: 
-			self.latent = tf.random.normal((n, self.d), self.mean, self.std)
 
-		self.latent = np.random.normal(0, 1, (n, self.d)).astype(np.float32)
+		if self.latent is None: 	self.latent = np.random.normal(0, 1, (n, self.d)).astype(np.float32)
+		elif not fix_latent: 		self.latent = np.random.normal(0, 1, (n, self.d)).astype(np.float32)
 
-		return self.latent
+		return self.latent[:n]
 
 
 class Logistic(): # see NICE page 5 section 3.4 
 
 	def __init__(self, d):  
 		self.d = d
+		self.latent = None
 
 	def log_density(self, X):
 		return tf.math.reduce_sum( - tf.math.log(1 + tf.exp(X)) - tf.math.log(1 + tf.exp(-X)) )
 
-	def sample(self, n=1000):	 # it seems this is not in tensorflow 2.0.0 beta
-		return np.random.logistic(0, 1, size=(1000, self.d)).astype(np.float32)
+	def sample(self, n=1000, fix_latent=False):	 # it seems logistic distribution is not in tensorflow 2.0.0 beta
+		if self.latent is None: 	self.latent = np.random.logistic(0, 1, (n, self.d)).astype(np.float32)
+		elif not fix_latent: 		self.latent = np.random.logistic(0, 1, (n, self.d)).astype(np.float32)
+
+		return self.latent[:n]
 
 	
