@@ -94,7 +94,7 @@ class ConvStrategy():
 
 	def split(self, X): 
 		self.shape = tf.shape(X)
-		d = X.shape[2]
+		d 		= X.shape[2]
 		x0		= X[:, :, :d//2, :]
 		x1		= X[:, :, d//2:, :] 
 		return x0, x1
@@ -252,7 +252,9 @@ class AffineCoupling(keras.Sequential):
 		d = tf.shape(X)[2]
 		s = X[:, :, d//2:, :]
 		t = X[:, :, :d//2, :]  
+
 		print(s.shape, t.shape, in_shape)
+
 		s = tf.reshape(s, in_shape)
 		t = tf.reshape(t, in_shape)
 
@@ -289,7 +291,7 @@ class AffineCoupling(keras.Sequential):
 
 	def log_det(self): 		 
 
-		# save 's' instead of recomputing. 
+		# TODO: save 's' instead of recomputing. 
 
 		X 		= self.input
 		n 		= tf.dtypes.cast(tf.shape(X)[0], tf.float32)
@@ -300,6 +302,10 @@ class AffineCoupling(keras.Sequential):
 			s, t 	= self.call_(x1)
 		if self.part == 1: 
 			s, t 	= self.call_(x0)
+
+		# there is an issue with 's' being divided by dimension 'd' later:
+		# If we used MultiScale it will be lower dimensional, in this case
+		# we should not divide by d but d//2. 
 
 		return tf.reduce_sum(tf.math.log(tf.abs(s))) / n
 
@@ -334,7 +340,7 @@ class Normalize(keras.layers.Layer):  # normalizes data after dequantization.
 	def __init__(self, target=[-1,+1], scale=127.5, input_shape=None): 
 		super(Normalize, self).__init__(input_shape=input_shape)
 		self.target = target
-		self.d 		= 28**2
+		self.d 		= np.prod(input_shape)
 		self.scale  = 1/2**8 #1/127.5
 
 	def call(self, X):  
@@ -346,9 +352,7 @@ class Normalize(keras.layers.Layer):  # normalizes data after dequantization.
 		Z = Z / self.scale
 		return Z
 
-	def log_det(self): return self.d * tf.math.log(self.scale) # 28**2 * log2(2**7) 
-	
-
+	def log_det(self): return self.d * tf.math.log(self.scale) 
 
 
 class MultiScale(keras.layers.Layer): 
