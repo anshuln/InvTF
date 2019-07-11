@@ -3,6 +3,11 @@
 
 """
 
+import os 
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_CPP_MIN_VLOG_LEVEL']='3'
+
 import tensorflow as tf
 import invtf.grow_memory
 import tensorflow.keras as keras 
@@ -11,6 +16,7 @@ import invtf.latent
 import matplotlib.pyplot as plt 
 from invtf.dequantize import *
 from invtf.layers import *
+
 
 
 
@@ -126,9 +132,9 @@ class Generator(keras.Sequential):
 	def predict(self, X, dequantize=True): 
 
 		# Zs = [] # TODO: Allow multiple MultiScale Architectures, for now just hardcode to one. 
+		Z = None
 
 		for layer in self.layers: 
-			print(layer, layer.input_shape, layer.output_shape)
 
 			# allow deactivating dequenatize 
 			# refactor to just look into name of layer and skip if it has dequantize in name or something like that. 
@@ -143,33 +149,41 @@ class Generator(keras.Sequential):
 
 		# TODO: make sure this does not break case without multiscale architecture.
 		# append Zs to X;; do by vectorize and then concat. 
+
+		if Z is None: 
+			self.X_size = np.prod(X.shape[1:])
+			return X
+
 		n = tf.shape(X)[0] 
 		X = tf.reshape(X, (n, -1))
-		Z = tf.reshape(Z, (n, -1))
-
 		self.X_size = tf.shape(X)[-1]
 
-		return tf.concat((X,Z), axis=-1)
+		Z = tf.reshape(Z, (n, -1))
+
+
+		X = tf.concat((X,Z), axis=-1)
+
+		output_shape 	= self.layers[-1].output_shape[1:]
+		X 				= tf.reshape(X, (-1, ) + output_shape)
+
+		return X
 
 	def predict_inv(self, Z): 
 		n = Z.shape[0]
-		print(Z.shape)
+
 		X = Z[:, :self.X_size]
 		Z = Z[:, self.X_size:]
-		print(X.shape, Z.shape)
 
 		for layer in self.layers[::-1]: 
 			if isinstance(layer, MultiScale): 
 				new_shape = (n,) + layer.output_shape[0][1:]
-				print(new_shape)
 				Z = tf.reshape(Z, new_shape)
-				print(X.shape, Z.shape)
 				X = layer.call_inv(X, Z)
 
 			else: 
 				X = layer.call_inv(X)
 
-		return X
+		return np.array(X)
 
 	def log_det(self): 
 		logdet = 0.
@@ -232,11 +246,14 @@ class Generator(keras.Sequential):
 
 	def sample(self, n=1000, fix_latent=True):	
 		Z 				= self.latent.sample(n=n, fix_latent=fix_latent)
-		#output_shape 	= self.layers[-1].output_shape[1:]
-		#Z 				= tf.reshape(Z, (-1, ) + output_shape)
+		
+		# Figure out how to handle shape of Z. If no multi-scale arch we want to do reshape below. 
+		# If multi-scale arch we don't want to, predict_inv handles it. Figure out who has the responsibility. 
+
+		output_shape 	= self.layers[-1].output_shape[1:]
+		Z 				= tf.reshape(Z, (-1, ) + output_shape)
 		#Z = tf.reshape(Z, (n, 28, 28, 1))
 		fakes = self.predict_inv(Z)
-		fakes = np.array(fakes)
 		return fakes
 
 		
