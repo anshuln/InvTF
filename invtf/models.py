@@ -107,9 +107,9 @@ class RealNVP():
 	"""
 
 	def mnist(X):  
-		# assumes X is a numpy array of size (60000, 28, 28 , 1)
-		d   	= np.prod(28**2)
-		input_shape = (28, 28, 1)
+		input_shape = X.shape[1:]
+		d 			= np.prod(input_shape)
+		h, w, c 	= input_shape
 
 		g = Generator(latent.Normal(d)) 
 
@@ -117,42 +117,46 @@ class RealNVP():
 		g.add(UniformDequantize	(input_shape=input_shape)) 
 		g.add(Normalize			(input_shape=input_shape))
 
-		h, w, c = 28, 28, 1
-
 		# Build model using additive coupling layers. 
+		g.add(Squeeze())
+		h, w, c = h//2, w//2, c*4
+
+		strategy = SplitChannelsStrategy()
+
 		for i in range(0, 2): 
-
 			for j in range(2): 
-				print("--- %i : %i --_"%(i,j))
 
-				ac = AffineCoupling(part=j%2, strategy=ConvStrategy()) 
-				ac.add(Conv2D(32, kernel_size=(3,3), activation="relu"))
+				ac = AffineCoupling(part=j%2, strategy=strategy)
 				ac.add(Flatten())
-				ac.add(Dense(d, bias_initializer="ones"))
+				ac.add(Dense(100, activation="relu"))
+				ac.add(Dense(100, activation="relu"))
+				ac.add(Dense(100, activation="relu"))
+				ac.add(Dense(d))
 				ac.add(Reshape((h, w, c)))
 
 				g.add(ac) 
 
 			
-			g.add(Squeeze())
+			"""g.add(Squeeze())
 			h, w, c = h//2, w//2, c*4
 
-			if i == 0: 
+			if i == 0 and False: 
 				g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
 				d = d//2
-				c = c//2
+				c = c//2"""
 
 		#g.add(Affine(exp=True))
-
 		g.compile(optimizer=keras.optimizers.Adam(0.0001))
 
 		g.predict(X[:2])
 
+		ac.summary()
+
 		return g
 
 
-
 class Glow(): 
+
 	def __init__(self): pass 
 
 
