@@ -2,12 +2,12 @@ import tensorflow as tf
 import tensorflow.keras as keras 
 import numpy as np
 from tensorflow.keras.layers import ReLU
+from invtf.override import print_summary
+from invtf.coupling_strategy import *
 
 """
 	Known issue with multi-scale architecture. 
-	
 	The log-det computations normalizes wrt full dimension. 
-	
 
 """
 
@@ -81,49 +81,6 @@ class Affine(keras.layers.Layer):
 		self.output_shape = input_shape
 		return input_shape
 
-
-
-
-class ConvStrategy(): 
-	"""
-		Takes either half cols / rows in an image. 
-		How do we do combien step in a smart way? 
-
-		for now just take cols. 
-	"""
-
-	def split(self, X): 
-		self.shape = tf.shape(X)
-		d 		= X.shape[2]
-		x0		= X[:, :, :d//2, :]
-		x1		= X[:, :, d//2:, :] 
-		return x0, x1
-
-	def combine(self, x0, x1): 
-		return tf.concat((x0, x1), axis=2)
-	
-
-class EvenOddStrategy(): 
-
-	def split(self, X): 
-		self.shape = tf.shape(X)
-		x0		= X[:, ::2]
-		x1		= X[:, 1::2]
-		return x0, x1
-
-	def combine(self, x0, x1): 
-		return tf.reshape(tf.stack([x0, x1], axis=-1), [-1, 28**2])
-
-class SplitOnHalfStrategy(): 
-	
-	def split(self, X): 
-		d = tf.shape(X)[1]
-		x0 		= X[:, :d//2]
-		x1 		= X[:, d//2:]
-		return x0, x1
-
-	def combine(self, x0, x1): 
-		return tf.concat((x0, x1), axis=1)
 
 
 """
@@ -221,39 +178,31 @@ class AffineCoupling(keras.Sequential):
 		self.part 		= part 
 		self.strategy 	= strategy
 
-
 	def build(self, input_shape):
 
 		# handle the issue with each network output something larger. 
 		_, h, w, c = input_shape
 
-		print(input_shape)
-		print(h, w//c, c)
 		self.layers[0].build(input_shape=(None, h, w//2, c))
 		out_dim = self.layers[0].compute_output_shape(input_shape=(None, h, w//2, c))
+		self.layers[0].output_shape_ = out_dim
 
 		for layer in self.layers[1:]:  
-			print(layer, out_dim)
 			layer.build(input_shape=out_dim)
 			out_dim = layer.compute_output_shape(input_shape=out_dim)
-		print("DONE: ", out_dim)
-
-
+			layer.output_shape_ = out_dim
 
 	def call_(self, X): 
 
 		in_shape = tf.shape(X)
 
 		for layer in self.layers: 
-			X = layer.call(X)
-
+			X = layer.call(X) # residual 
 
 		# TODO: Could have a part of network learned specifically for s,t to not ONLY have wegith sharing? 
 		d = tf.shape(X)[2]
 		s = X[:, :, d//2:, :]
 		t = X[:, :, :d//2, :]  
-
-		print(s.shape, t.shape, in_shape)
 
 		s = tf.reshape(s, in_shape)
 		t = tf.reshape(t, in_shape)
@@ -311,6 +260,9 @@ class AffineCoupling(keras.Sequential):
 
 	def compute_output_shape(self, input_shape): return input_shape
 
+	def summary(self, line_length=None, positions=None, print_fn=None):
+		print_summary(self, line_length=line_length, positions=positions, print_fn=print_fn) # fixes stupid issue.
+
 
 
 
@@ -341,14 +293,14 @@ class Normalize(keras.layers.Layer):  # normalizes data after dequantization.
 		super(Normalize, self).__init__(input_shape=input_shape)
 		self.target = target
 		self.d 		= np.prod(input_shape)
-		self.scale  = 1/2**8 #1/127.5
+		self.scale  = 1/127.5
 
 	def call(self, X):  
-		X 			= X * self.scale  #- 1
+		X 			= X * self.scale  - 1
 		return X
 
 	def call_inv(self, Z): 
-		Z = Z #+ 1
+		Z = Z + 1
 		Z = Z / self.scale
 		return Z
 
@@ -375,29 +327,12 @@ class MultiScale(keras.layers.Layer):
 
 
 
-# invertible non-linearity; coupling layer with ReLU inside. 
-# for now coupling layer just splits on last dimension for simplicity
-# the last dimension is assumed to be even. 
-class CoupledReLU(keras.layers.Layer): 
-
-	def call(self, X):  		pass 
-		
-	def call_inv(self, Z):  	pass 
-
-	def log_det(self): 			return 0
 
 class Inv1x1Conv(keras.layers.Layer):  
 	pass # Use decomposition in original article and that of emergin convolutions. 
 
 
-
-class Coupling(keras.layers.Layer): pass # Take parameter that chooses between Affine and Additive; not sure what should be default yet. 
-
-
 class InvResNet(keras.layers.Layer): 			pass # model should automatically use gradient checkpointing if this is used. 
-
-	 
-
 
 
 # the 3D case, refactor to make it into the general case. 
