@@ -109,7 +109,7 @@ class RealNVP():
 	def model(X):  
 		input_shape = X.shape[1:]
 		d 			= np.prod(input_shape)
-		h, w, c 	= input_shape
+		#h, w, c 	= input_shape
 
 		g = Generator(latent.Normal(d)) 
 
@@ -119,7 +119,6 @@ class RealNVP():
 
 		# Build model using additive coupling layers. 
 		g.add(Squeeze())
-		h, w, c = h//2, w//2, c*4
 
 		strategy = SplitChannelsStrategy()
 
@@ -132,17 +131,14 @@ class RealNVP():
 				ac.add(Dense(100, activation="relu"))
 				ac.add(Dense(100, activation="relu"))
 				ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
-				ac.add(Reshape((h, w, c)))
 
 				g.add(ac) 
 
 			
 			g.add(Squeeze())
-			h, w, c = h//2, w//2, c*4
 
 			g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
 			d = d//2
-			c = c//2
 
 		ac = AffineCoupling(part=j%2, strategy=strategy)
 		ac.add(Flatten())
@@ -150,7 +146,6 @@ class RealNVP():
 		ac.add(Dense(100, activation="relu"))
 		ac.add(Dense(100, activation="relu"))
 		ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
-		ac.add(Reshape((h, w, c)))
 
 		g.add(ac) 
 

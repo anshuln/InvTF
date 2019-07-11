@@ -195,14 +195,18 @@ class AffineCoupling(keras.Sequential):
 	def call_(self, X): 
 
 		in_shape = tf.shape(X)
+		n, h, w, c = X.shape
 
 		for layer in self.layers: 
 			X = layer.call(X) # residual 
 
 		# TODO: Could have a part of network learned specifically for s,t to not ONLY have wegith sharing? 
-		d = tf.shape(X)[2]
-		s = X[:, :, d//2:, :]
-		t = X[:, :, :d//2, :]  
+		
+		X = tf.reshape(X, (-1, h, w, c*2))
+		print(X.shape)
+		s = X[:, :, w//2:, :]
+		t = X[:, :, :w//2, :]  
+		print(t.shape, s.shape)
 
 		s = tf.reshape(s, in_shape)
 		t = tf.reshape(t, in_shape)
