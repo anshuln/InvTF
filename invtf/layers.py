@@ -309,15 +309,14 @@ class Normalize(keras.layers.Layer):  # normalizes data after dequantization.
 
 class MultiScale(keras.layers.Layer): 
 
-	def call(self, X): 
+	def call(self, X):  # TODO: have different strategies here, and combine it with how coupling layer works? 
 		n, w, h, c = X.shape
-		Z = X[:, :, :, :c//2]
-		X = X[:, :, :, c//2:]
+		Z = X[:, :, :, c//2:]
+		X = X[:, :, :, :c//2]
 		return X, Z
 	
 	def call_inv(self, X, Z): 
 		return tf.concat((X, Z), axis=-1)
-
 
 	def compute_output_shape(self, input_shape): 
 		n, h, w, c = input_shape

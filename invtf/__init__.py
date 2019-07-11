@@ -130,8 +130,7 @@ class Generator(keras.Sequential):
 
 	def predict(self, X, dequantize=True): 
 
-		# Zs = [] # TODO: Allow multiple MultiScale Architectures, for now just hardcode to one. 
-		Z = None
+		Zs = [] 
 
 		for layer in self.layers: 
 
@@ -141,7 +140,7 @@ class Generator(keras.Sequential):
 
 			if isinstance(layer, MultiScale): 
 				X, Z = layer.call(X)
-				#Zs.append(Z)
+				Zs.append(Z)
 				continue
 
 			X = layer.call(X)
@@ -149,35 +148,16 @@ class Generator(keras.Sequential):
 		# TODO: make sure this does not break case without multiscale architecture.
 		# append Zs to X;; do by vectorize and then concat. 
 
-		if Z is None: 
-			self.X_size = np.prod(X.shape[1:])
-			return X
+		return X, Zs
 
-		n = tf.shape(X)[0] 
-		X = tf.reshape(X, (n, -1))
-		self.X_size = tf.shape(X)[-1]
-
-		Z = tf.reshape(Z, (n, -1))
-
-
-		X = tf.concat((X,Z), axis=-1)
-
-		output_shape 	= self.layers[-1].output_shape[1:]
-		X 				= tf.reshape(X, (-1, ) + output_shape)
-
-		return X
-
-	def predict_inv(self, Z): 
-		n = Z.shape[0]
-
-		X = Z[:, :self.X_size]
-		Z = Z[:, self.X_size:]
+	def predict_inv(self, X, Z=None): 
+		n = X.shape[0]
 
 		for layer in self.layers[::-1]: 
+			print(layer, X.shape)
+
 			if isinstance(layer, MultiScale): 
-				new_shape = (n,) + layer.output_shape[0][1:]
-				Z = tf.reshape(Z, new_shape)
-				X = layer.call_inv(X, Z)
+				X = layer.call_inv(X, Z.pop())
 
 			else: 
 				X = layer.call_inv(X)
@@ -216,7 +196,9 @@ class Generator(keras.Sequential):
 		return 		- normal
 
 	def compile(self, **kwargs): 
-		kwargs['loss'] 		= self.loss # overrides what'ever loss the user specifieds; change to complain with exception if they specify it with
+		# overrides what'ever loss the user specifieds; change to complain with exception if they specify it with
+
+		kwargs['loss'] 		= self.loss 
 
 		def lg_det(y_true, y_pred): 	return self.loss_log_det(y_true, y_pred)
 		def lg_latent(y_true, y_pred): 	return self.loss_log_latent_density(y_true, y_pred)
@@ -228,11 +210,14 @@ class Generator(keras.Sequential):
 
 	def fit(self, X, **kwargs): return super(Generator, self).fit(X, y=X, **kwargs)	# if user specifies batch_size here, get upset. 
 
-
 	def rec(self, X): 
-		enc = self.predict(X)#, dequantize=False)
-		dec = self.predict_inv(enc)
-		return dec
+
+		print(X.shape)
+		X, Zs = self.predict(X)#, dequantize=False) # TODO: deactivate dequantize. 
+		print(X.shape, [Z.shape for Z in Zs])
+		rec = self.predict_inv(X, Zs)
+		print(rec.shape)
+		return rec
 
 	def check_inv(self, X, precision=10**(-5)): 
 		img_shape = X.shape[1:]
@@ -252,15 +237,26 @@ class Generator(keras.Sequential):
 
 
 	def sample(self, n=1000, fix_latent=True):	
-		Z 				= self.latent.sample(n=n, fix_latent=fix_latent)
+		#Z 	= self.latent.sample(n=n, fix_latent=fix_latent)
 		
 		# Figure out how to handle shape of Z. If no multi-scale arch we want to do reshape below. 
 		# If multi-scale arch we don't want to, predict_inv handles it. Figure out who has the responsibility. 
 
 		output_shape 	= self.layers[-1].output_shape[1:]
-		Z 				= tf.reshape(Z, (-1, ) + output_shape)
-		#Z = tf.reshape(Z, (n, 28, 28, 1))
-		fakes = self.predict_inv(Z)
+
+		X = np.random.normal(0, 1, (n, ) + output_shape).astype(np.float32)
+
+		for layer in self.layers[::-1]: 
+			print(layer, X.shape)
+
+			if isinstance(layer, MultiScale): 
+				Z = np.random.normal(0, 1, X.shape).astype(np.float32)
+				X = layer.call_inv(X, Z)
+			else: 
+				X = layer.call_inv(X)
+
+		return np.array(X, dtype=np.int32) # makes it easier on matplotlib. 
+
 		return fakes
 
 		

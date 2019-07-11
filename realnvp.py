@@ -15,13 +15,14 @@ from invtf.models import NICE, RealNVP
 import invtf.latent as latent
 
 
-fig, ax = plt.subplots(3, 1)
+fig, ax = plt.subplots(1, 3)
+for i in range(3): ax[i].axis('off')
 
-X = mnist().images()
-img_shape = X.shape[1:-1]
+#X = mnist().images()
+#img_shape = X.shape[1:-1]
 
-#X = cifar10().images()
-#img_shape = X.shape[1:]
+X = cifar10().images()
+img_shape = X.shape[1:]
 
 g = RealNVP.model(X)
 
@@ -30,11 +31,8 @@ g.summary()
 g.check_inv(X[:2])
 
 
-log_dir			= "logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-tensorboard 	= keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-
-for _ in range(300): 
-	g.fit(X, batch_size=512, callbacks=[tensorboard], epochs=1)
+for i in range(300): 
+	g.fit(X, batch_size=512, epochs=1)
 
 	fake = g.sample(1, fix_latent=True)
 
@@ -46,7 +44,6 @@ for _ in range(300):
 
 	ax[2].imshow(g.rec(X[:1]).reshape(img_shape))
 	ax[2].set_title("Reconstruction")
+	if i == 0: plt.tight_layout()
 
 	plt.pause(.1)
-
-	g.check_inv(X[:1])

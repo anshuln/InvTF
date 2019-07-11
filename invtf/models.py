@@ -137,19 +137,29 @@ class RealNVP():
 				g.add(ac) 
 
 			
-			"""g.add(Squeeze())
+			g.add(Squeeze())
 			h, w, c = h//2, w//2, c*4
 
-			if i == 0 and False: 
-				g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
-				d = d//2
-				c = c//2"""
+			g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
+			d = d//2
+			c = c//2
+
+		ac = AffineCoupling(part=j%2, strategy=strategy)
+		ac.add(Flatten())
+		ac.add(Dense(100, activation="relu"))
+		ac.add(Dense(100, activation="relu"))
+		ac.add(Dense(100, activation="relu"))
+		ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
+		ac.add(Reshape((h, w, c)))
+
+		g.add(ac) 
+
 
 		g.compile(optimizer=keras.optimizers.Adam(0.0001))
 
 		g.predict(X[:2])
 
-		ac.summary()
+		#ac.summary()
 
 		return g
 
