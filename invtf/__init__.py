@@ -244,13 +244,13 @@ class Generator(keras.Sequential):
 
 		output_shape 	= self.layers[-1].output_shape[1:]
 
-		X = np.random.normal(0, 1, (n, ) + output_shape).astype(np.float32)
+		X = self.latent.sample(shape=(n, ) + output_shape)
 
 		for layer in self.layers[::-1]: 
 			print(layer, X.shape)
 
 			if isinstance(layer, MultiScale): 
-				Z = np.random.normal(0, 1, X.shape).astype(np.float32)
+				Z = self.latent.sample(shape=X.shape)
 				X = layer.call_inv(X, Z)
 			else: 
 				X = layer.call_inv(X)

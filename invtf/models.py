@@ -109,7 +109,6 @@ class RealNVP():
 	def model(X):  
 		input_shape = X.shape[1:]
 		d 			= np.prod(input_shape)
-		#h, w, c 	= input_shape
 
 		g = Generator(latent.Normal(d)) 
 
@@ -133,7 +132,6 @@ class RealNVP():
 				ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
 
 				g.add(ac) 
-
 			
 			g.add(Squeeze())
 
@@ -149,12 +147,11 @@ class RealNVP():
 
 		g.add(ac) 
 
-
 		g.compile(optimizer=keras.optimizers.Adam(0.0001))
 
 		g.predict(X[:2])
 
-		#ac.summary()
+		ac.summary()
 
 		return g
 
