@@ -9,7 +9,8 @@ class mnist():
 
 	def __init__(self, digit=-1):  # -1 => all classes
 		(self.X, y), (self.X_test, y_test) = datasets.mnist.load_data()
-		self.X = self.X.reshape(60000, 28**2).astype(np.float32)
+		self.X = self.X.astype(np.float32).reshape(60000, 28, 28, 1)
+		#self.X = self.X.reshape(60000, 28**2).astype(np.float32)
 
 		if digit > -1: 
 			self.X      = self.X	 [y 	 == digit]
@@ -18,6 +19,18 @@ class mnist():
 
 	def images(self): 
 		return self.X
+
+
+class cifar10(): 
+
+	def __init__(self, digit=-1):  # -1 => all classes
+		(self.X, y), (self.X_test, y_test) = datasets.cifar10.load_data()
+		self.X = self.X
+
+	def images(self): 
+		return self.X
+
+
 
 
 
