@@ -92,11 +92,11 @@ class RealNVP():
 			!!! The permutation is very simple compared to channel-wise masking / spatial checkerboard.
 			TODO: implement channel-wise masking + spatial checkerboard. 
 
-		3) implement squeeze (try different ones)
+		3) implement squeeze (try different ones): DONE
 		
-		4) Implement multi-scale architecture. 
+		4) Implement multi-scale architecture. : DONE 
 
-		2) Change from dense to residual conv net with ??bnorm???
+		2) Change from dense to residual conv net with ??bnorm???: 
 
 		Differences: 
 			The implementation follows GLOW, so there is not exp in the scaling. 
@@ -158,7 +158,67 @@ class RealNVP():
 
 class Glow(): 
 
-	def __init__(self): pass 
+	"""
+		Curiously they don't use residual networks in coupling layers as RealNVP does. 
+
+	""" 
+
+	def model(X):  
+		input_shape = X.shape[1:]
+		d 			= np.prod(input_shape)
+
+		g = Generator(latent.Normal(d)) 
+
+		# Pre-process steps. 
+		g.add(UniformDequantize	(input_shape=input_shape)) 
+		g.add(Normalize			(input_shape=input_shape))
+
+		# Build model using additive coupling layers. 
+		g.add(Squeeze())
+
+		for i in range(0, 2): 
+			for j in range(2): 
+
+				ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
+		
+				ac.add(Conv2D(64, kernel_size=(3,3), activation="relu"))
+				
+				ac.add(Flatten())
+				#ac.add(Dense(100, activation="relu"))
+				#ac.add(Dense(100, activation="relu"))
+				ac.add(Dense(50, activation="relu"))
+				ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
+
+				#g.add(Inv1x1Conv())
+				#g.add(Glow1x1Conv())
+				#g.add(Conv3DCirc())
+				g.add(ac) 
+			
+			g.add(Squeeze())
+
+			#g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
+			#d = d//2
+
+		ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
+		ac.add(Flatten())
+		ac.add(Dense(100, activation="relu"))
+		ac.add(Dense(100, activation="relu"))
+		ac.add(Dense(100, activation="relu"))
+		ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
+
+		g.add(ac) 
+
+		g.compile(optimizer=keras.optimizers.Adam(0.001))
+
+		g.predict(X[:2])
+
+		for layer in g.layers: 
+			if isinstance(layer, AffineCoupling): layer.summary()
+
+		return g
+
+
+
 
 
 class InvResNet(): 

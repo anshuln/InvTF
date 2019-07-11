@@ -172,7 +172,7 @@ class AffineCoupling(keras.Sequential):
 
 	unique_id = 1
 
-	def __init__(self, part=0, strategy=SplitOnHalfStrategy()): 
+	def __init__(self, part=0, strategy=SplitChannelsStrategy()): 
 		super(AffineCoupling, self).__init__(name="aff_coupling_%i"%AffineCoupling.unique_id)
 		AffineCoupling.unique_id += 1
 		self.part 		= part 
@@ -183,8 +183,11 @@ class AffineCoupling(keras.Sequential):
 		# handle the issue with each network output something larger. 
 		_, h, w, c = input_shape
 
-		self.layers[0].build(input_shape=(None, h, w//2, c))
-		out_dim = self.layers[0].compute_output_shape(input_shape=(None, h, w//2, c))
+
+		h, w, c = self.strategy.coupling_shape(input_shape=(h,w,c))
+
+		self.layers[0].build(input_shape=(None, h, w, c))
+		out_dim = self.layers[0].compute_output_shape(input_shape=(None, h, w, c))
 		self.layers[0].output_shape_ = out_dim
 
 		for layer in self.layers[1:]:  
@@ -203,10 +206,8 @@ class AffineCoupling(keras.Sequential):
 		# TODO: Could have a part of network learned specifically for s,t to not ONLY have wegith sharing? 
 		
 		X = tf.reshape(X, (-1, h, w, c*2))
-		print(X.shape)
 		s = X[:, :, w//2:, :]
 		t = X[:, :, :w//2, :]  
-		print(t.shape, s.shape)
 
 		s = tf.reshape(s, in_shape)
 		t = tf.reshape(t, in_shape)
@@ -329,10 +330,161 @@ class MultiScale(keras.layers.Layer):
 	def log_det(self): return 0.
 
 
+class ActNorm(keras.layers.Layer): pass 
 
 
 class Inv1x1Conv(keras.layers.Layer):  
-	pass # Use decomposition in original article and that of emergin convolutions. 
+
+	"""
+		Based on Glow page 11 appendix B. 
+		It is possible to speed up determinant computation by using PLU or QR decomposition
+		as proposed in Glow and Emerging Conv papers respectively. 
+
+		Add bias to this operation? Try to see if it makes any difference. 
+
+		Try to compare speed / numerical stability etc for different implementations: 
+
+			1. PLU decomposition
+			2. QR
+			3. Normal determinant O(c^3)
+			4. tensordot vs conv2d. 
+	"""
+
+	def __init__(self, **kwargs): super(Inv1x1Conv, self).__init__(**kwargs)
+
+	def build(self, input_shape): 
+
+		_, h, w, c = input_shape
+		self.c = c
+		self.h = h
+		self.w = w
+
+		#w_init = np.linalg.qr(np.random.randn(c,c))[0]
+		self.W 		= self.add_weight(shape=(c, c), initializer=keras.initializers.Orthogonal(gain=1.0, seed=None), name="inv_1x1_conv")
+		self.W_inv 	= tf.linalg.inv(self.W)
+		
+		super(Inv1x1Conv, self).build(input_shape)
+		self.built = True
+
+	def call(self, X): 	
+		_W = tf.reshape(self.W, (1,1, self.c, self.c))
+		return tf.nn.conv2d(X, _W, [1,1,1,1], "SAME")
+
+	def call_inv(self, Z):  
+		_W = tf.reshape(self.W_inv, (1,1, self.c, self.c))
+		return tf.nn.conv2d(Z, _W, [1,1,1,1], "SAME")
+
+	def log_det(self): 		 # TODO: Fix this issue!!! 
+		print(self.h, self.w, tf.linalg.det(self.W))
+		return self.h * self.w * tf.math.log(tf.abs( tf.linalg.det(self.W) ))  
+
+	def compute_output_shape(self, input_shape): return input_shape
+
+
+class Glow1x1Conv(keras.layers.Layer): 
+
+	# Could be speed up parameterizing in LU decomposition. 
+	def build(self, input_shape): 
+		_, h, w, c = input_shape
+
+		self.h, self.w = h, w
+	
+		# make L and U lower and upper triangular by masking with zeros. 
+		self.L 				= self.add_weight(shape=(c, c), initializer="zeros", name="weights")
+		self.U				= self.add_weight(shape=(c, c), initializer="zeros", name="weights")
+		self.eigenvals		= self.add_weight(shape=(c, 1), initializer="ones", name="weights")
+
+		identity 			= tf.constant(np.identity(c), dtype=tf.float32)
+
+		""" 
+		>>> # Creating masks. 
+		>>> np.triu(np.ones((4,4)), k=+1)
+		array([[0., 1., 1., 1.],
+			   [0., 0., 1., 1.],
+			   [0., 0., 0., 1.],
+			   [0., 0., 0., 0.]])
+		>>> np.tril(np.ones((4,4)), k=-1)
+		array([[0., 0., 0., 0.],
+			   [1., 0., 0., 0.],
+			   [1., 1., 0., 0.],
+			   [1., 1., 1., 0.]])
+		"""
+
+		upper_mask = tf.constant(np.triu(np.ones((c,c)), k=+1), dtype=tf.float32)
+		lower_mask = tf.constant(np.tril(np.ones((c,c)), k=-1), dtype=tf.float32)
+
+		self.L = lower_mask * self.L + identity
+		self.U = upper_mask * self.U + identity
+		
+		self.kernel 		= self.L @ (self.eigenvals * self.U) 
+		self.kernel_inv 	= tf.linalg.inv(self.kernel)
+
+	def call(self, inputs): 		return tf.tensordot(inputs, self.kernel, axes=((-1), (0))) 
+	def call_inv(self, inputs):		return tf.tensordot(inputs, self.kernel_inv, axes=((-1), (0))) 
+	def log_det(self): 				return self.h * self.w * tf.reduce_sum(tf.math.log(tf.abs(self.eigenvals))) 
+
+	def compute_output_shape(self, input_shape): return input_shape
+
+
+
+class Conv3DCirc(keras.layers.Layer): 
+
+	def __init__(self,trainable=True): 
+		self.built = False
+		super(Conv3DCirc, self).__init__()
+
+	def call(self, X): 
+		if self.built == False:    #For some reason the layer is not being built without this line
+			self.build(X.get_shape().as_list())
+
+		#The next 2 lines are a redundant computation necessary because w needs to be an EagerTensor for the output to be eagerly executed, and that was not the case earlier
+		#EagerTensor is required for backprop to work...
+		#Further, updating w_real will automatically trigger an update on self.w, so it is better to not store w at all
+		#TODO - figure out a way to avoid, or open an issue with tf...
+		self.w  = tf.cast(self.w_real, dtype=tf.complex64)
+		self.w  = tf.signal.fft3d(self.w / self.scale)
+
+		X = tf.cast(X, dtype=tf.complex64)
+		X = tf.signal.fft3d(X / self.scale) 
+		X = X * self.w
+		X = tf.signal.ifft3d(X * self.scale ) 
+		X = tf.math.real(X)
+		return X
+
+
+	def call_inv(self, X): 
+		X = tf.cast(X, dtype=tf.complex64)
+		X = tf.signal.fft3d(X * self.scale ) # self.scale correctly 
+		#The next 2 lines are a redundant computation necessary because w needs to be an EagerTensor for the output to be eagerly executed, and that was not the case earlier
+		self.w  = tf.cast(self.w_real, dtype=tf.complex64)
+		self.w  = tf.signal.fft3d(self.w / self.scale)
+
+		X = X / self.w
+
+		X = tf.signal.ifft3d(X / self.scale)   
+		X = tf.math.real(X)
+		return X
+
+	def log_det(self):  return tf.math.reduce_sum(tf.math.log(tf.math.abs(tf.signal.fft3d(tf.cast(self.w_real/self.scale,dtype=tf.complex64)))))    #Need to return EagerTensor
+
+
+	def build(self, input_shape): 
+		self.scale = np.sqrt(np.prod(input_shape[1:])) # np.sqrt(np.prod([a.value for a in input_shape[1:]]))
+
+		# todo; change to [[[1, 0000],[0000], [000]] 
+
+		def identitiy_initializer_real(shape, dtype=None):
+			return (tf.math.real(tf.signal.ifft3d(tf.ones(shape, dtype=tf.complex64)*self.scale))) 
+
+		self.w_real     = self.add_variable(name="w_real",shape=input_shape[1:], initializer=identitiy_initializer_real, trainable=True)
+		# self.w    = tf.cast(self.w_real, dtype=tf.complex64)  #hacky way to initialize real w and actual w, since tf does weird stuff if 'variable' is modified
+		# self.w    = tf.signal.fft3d(self.w / self.scale)
+		self.built = True
+		
+
+	def compute_output_shape(self, input_shape): 
+		return tf.TensorShape(input_shape[1:])
+
 
 
 class InvResNet(keras.layers.Layer): 			pass # model should automatically use gradient checkpointing if this is used. 

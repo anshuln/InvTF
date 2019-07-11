@@ -154,7 +154,6 @@ class Generator(keras.Sequential):
 		n = X.shape[0]
 
 		for layer in self.layers[::-1]: 
-			print(layer, X.shape)
 
 			if isinstance(layer, MultiScale): 
 				X = layer.call_inv(X, Z.pop())
@@ -212,11 +211,8 @@ class Generator(keras.Sequential):
 
 	def rec(self, X): 
 
-		print(X.shape)
 		X, Zs = self.predict(X)#, dequantize=False) # TODO: deactivate dequantize. 
-		print(X.shape, [Z.shape for Z in Zs])
 		rec = self.predict_inv(X, Zs)
-		print(rec.shape)
 		return rec
 
 	def check_inv(self, X, precision=10**(-5)): 
@@ -247,7 +243,6 @@ class Generator(keras.Sequential):
 		X = self.latent.sample(shape=(n, ) + output_shape)
 
 		for layer in self.layers[::-1]: 
-			print(layer, X.shape)
 
 			if isinstance(layer, MultiScale): 
 				Z = self.latent.sample(shape=X.shape)

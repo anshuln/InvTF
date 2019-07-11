@@ -10,7 +10,7 @@ import datetime
 from tensorflow.keras.layers import ReLU, Dense
 from tensorflow.keras.models import Sequential
 
-from invtf.models import *
+from invtf.models import Glow
 
 import invtf.latent as latent
 
@@ -24,15 +24,20 @@ for i in range(3): ax[i].axis('off')
 X = cifar10().images()
 img_shape = X.shape[1:]
 
-g = RealNVP.model(X)
+g = Glow.model(X)
 
 g.summary()
 
-g.check_inv(X[:2])
+g.check_inv(X[:2], precision=10**(-3)) # matrix inverse introduces a lot of instability. 
 
 
 for i in range(300): 
-	g.fit(X, batch_size=512, epochs=1)
+
+	g.fit(X, batch_size=512, epochs=1) # keep track on 1x1 inv convs determinant; I think they are scaled wrongly and get too low. 
+
+	for layer in g.layers:
+		if isinstance(layer, Inv1x1Conv): 
+			print(layer.log_det())
 
 	fake = g.sample(1, fix_latent=True)
 
@@ -47,3 +52,5 @@ for i in range(300):
 	if i == 0: plt.tight_layout()
 
 	plt.pause(.1)
+
+	#g.check_inv(X[:2], precision=10**(-3)) # matrix inverse introduces a lot of instability. 
