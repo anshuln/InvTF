@@ -19,7 +19,6 @@ from invtf.layers import *
 
 
 
-
 """
 
 	TODO: 
@@ -183,7 +182,7 @@ class Generator(keras.Sequential):
 			else: 
 				X = layer.call_inv(X)
 
-		return np.array(X)
+		return np.array(X, dtype=np.int32) # makes it easier on matplotlib. 
 
 	def log_det(self): 
 		logdet = 0.
@@ -230,17 +229,25 @@ class Generator(keras.Sequential):
 	def fit(self, X, **kwargs): return super(Generator, self).fit(X, y=X, **kwargs)	# if user specifies batch_size here, get upset. 
 
 
-	def check_inv(self, X, precision=10**(-5)): 
-
-		enc = self.predict(X, dequantize=False)
+	def rec(self, X): 
+		enc = self.predict(X)#, dequantize=False)
 		dec = self.predict_inv(enc)
+		return dec
 
-		if not np.allclose(X, dec.numpy(), atol=precision):
+	def check_inv(self, X, precision=10**(-5)): 
+		img_shape = X.shape[1:]
+
+		rec = self.rec(X)
+
+		if not np.allclose(X, rec, atol=precision):
 			fig, ax = plt.subplots(5, 3)
 			for i in range(5): 
-				ax[i, 0].imshow(X[i].reshape(28, 28), vmin=0, vmax=255)
-				ax[i, 1].imshow(dec[i].numpy().reshape(28, 28), vmin=0, vmax=255)
-				ax[i, 2].imshow((X[i]-dec[i].numpy()).reshape(28, 28), vmin=0, vmax=255)
+				ax[i, 0].imshow(X[i].reshape(img_shape))
+				ax[i, 0].set_title("Image")
+				ax[i, 1].imshow(rec[i].reshape(img_shape))
+				ax[i, 1].set_title("Reconstruction")
+				ax[i, 2].imshow((X[i]-rec[i]).reshape(img_shape))
+				ax[i, 2].set_title("Difference")
 				plt.show()
 
 

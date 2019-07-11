@@ -53,7 +53,7 @@ class NICE():
 
 	"""
 
-	def mnist(X):  
+	def mnist(X):   # assumes mnist. 
 		n, d = X.shape
 
 		g = Generator(latent.Logistic(d)) 
@@ -106,7 +106,7 @@ class RealNVP():
 
 	"""
 
-	def mnist(X):  
+	def model(X):  
 		input_shape = X.shape[1:]
 		d 			= np.prod(input_shape)
 		h, w, c 	= input_shape
@@ -131,7 +131,7 @@ class RealNVP():
 				ac.add(Dense(100, activation="relu"))
 				ac.add(Dense(100, activation="relu"))
 				ac.add(Dense(100, activation="relu"))
-				ac.add(Dense(d))
+				ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
 				ac.add(Reshape((h, w, c)))
 
 				g.add(ac) 
@@ -145,7 +145,6 @@ class RealNVP():
 				d = d//2
 				c = c//2"""
 
-		#g.add(Affine(exp=True))
 		g.compile(optimizer=keras.optimizers.Adam(0.0001))
 
 		g.predict(X[:2])
