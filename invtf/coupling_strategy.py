@@ -2,6 +2,14 @@ import tensorflow as tf
 import tensorflow.keras as keras 
 import numpy as np
 
+class CouplingStrategy(): 
+
+	def split(self, X): raise NotImplementedError()
+
+	def combine(self, x0, x1): raise NotImplementedError()
+
+	def coupling_shape(self, input_shape): raise NotImplementedError()
+
 """
 	The coupling layers require input tensor to be split. 
 	This strategy splits on the channels. 
@@ -14,7 +22,7 @@ import numpy as np
 
 	[1] https://github.com/openai/glow/blob/eaff2177693a5d84a1cf8ae19e8e0441715b82f8/model.py#L387
 """
-class SplitChannelsStrategy():  
+class SplitChannelsStrategy(CouplingStrategy):  
 
 
 	def split(self, X): 
@@ -47,7 +55,7 @@ class SplitChannelsStrategy():
 		Make a downscale strategy that constructs roughly a half sized image \approx 22x23 on 32x32 or 20x19 for 28x28. 
 
 """
-class ConvAlternateStrategy(): 
+class ConvAlternateStrategy(CouplingStrategy): 
 
 	"""
 		Hacky implementation. Permutation can be done with matrix multiplication.
@@ -94,7 +102,7 @@ class ConvAlternateStrategy():
 		return C
 	
 
-class EvenOddStrategy(): 
+class EvenOddStrategy(CouplingStrategy): 
 
 	def split(self, X): 
 		self.shape = tf.shape(X)
@@ -105,7 +113,7 @@ class EvenOddStrategy():
 	def combine(self, x0, x1): 
 		return tf.reshape(tf.stack([x0, x1], axis=-1), [-1, 28**2])
 
-class SplitOnHalfStrategy(): 
+class SplitOnHalfStrategy(CouplingStrategy): 
 	
 	def split(self, X): 
 		d = tf.shape(X)[1]
