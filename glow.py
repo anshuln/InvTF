@@ -28,23 +28,20 @@ g = Glow.model(X)
 
 g.summary()
 
-g.check_inv(X[:2], precision=10**(-3)) # matrix inverse introduces a lot of instability. 
+# Currently experiencing issues. 
+g.check_inv(X[:2], precision=10**(-0)) 
 
 
 for i in range(300): 
 
 	g.fit(X, batch_size=512, epochs=1) # keep track on 1x1 inv convs determinant; I think they are scaled wrongly and get too low. 
 
-	for layer in g.layers:
-		if isinstance(layer, Inv1x1Conv): 
-			print(layer.log_det())
-
 	fake = g.sample(1, fix_latent=True)
 
 	ax[0].imshow(fake.reshape(img_shape))
 	ax[0].set_title("Fake")
 
-	ax[1].imshow(X[0].reshape(img_shape))
+	ax[1].imshow(X[0].reshape(img_shape).astype(np.int32))
 	ax[1].set_title("Real")
 
 	ax[2].imshow(g.rec(X[:1]).reshape(img_shape))

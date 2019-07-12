@@ -136,7 +136,8 @@ class Generator(keras.Sequential):
 
 			# allow deactivating dequenatize 
 			# refactor to just look into name of layer and skip if it has dequantize in name or something like that. 
-			if not dequantize and isinstance(layer, UniformDequantize): continue	
+			if not dequantize and isinstance(layer, UniformDequantize): 	continue	
+			if not dequantize and isinstance(layer, VariationalDequantize): continue	
 
 			if isinstance(layer, MultiScale): 
 				X, Z = layer.call(X)
@@ -207,11 +208,12 @@ class Generator(keras.Sequential):
 
 		super(Generator, self).compile(**kwargs)
 
-	def fit(self, X, **kwargs): return super(Generator, self).fit(X, y=X, **kwargs)	# if user specifies batch_size here, get upset. 
+	def fit(self, X, **kwargs): 
+		return super(Generator, self).fit(X, y=X, **kwargs)	# if user specifies batch_size here, get upset. 
 
 	def rec(self, X): 
 
-		X, Zs = self.predict(X)#, dequantize=False) # TODO: deactivate dequantize. 
+		X, Zs = self.predict(X, dequantize=False) # TODO: deactivate dequantize. 
 		rec = self.predict_inv(X, Zs)
 		return rec
 
@@ -223,7 +225,7 @@ class Generator(keras.Sequential):
 		if not np.allclose(X, rec, atol=precision):
 			fig, ax = plt.subplots(5, 3)
 			for i in range(5): 
-				ax[i, 0].imshow(X[i].reshape(img_shape))
+				ax[i, 0].imshow(X[i].reshape(img_shape).astype(np.int32))
 				ax[i, 0].set_title("Image")
 				ax[i, 1].imshow(rec[i].reshape(img_shape))
 				ax[i, 1].set_title("Reconstruction")

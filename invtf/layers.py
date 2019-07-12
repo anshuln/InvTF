@@ -375,7 +375,6 @@ class Inv1x1Conv(keras.layers.Layer):
 		return tf.nn.conv2d(Z, _W, [1,1,1,1], "SAME")
 
 	def log_det(self): 		 # TODO: Fix this issue!!! 
-		print(self.h, self.w, tf.linalg.det(self.W))
 		return self.h * self.w * tf.math.log(tf.abs( tf.linalg.det(self.W) ))  
 
 	def compute_output_shape(self, input_shape): return input_shape
@@ -484,6 +483,21 @@ class Conv3DCirc(keras.layers.Layer):
 
 	def compute_output_shape(self, input_shape): 
 		return tf.TensorShape(input_shape[1:])
+
+
+class Reshape(keras.layers.Layer):
+	def __init__(self, shape): 
+		self.shape = shape
+		super(Reshape, self).__init__()
+
+	def call(self, X): 
+		self.prev_shape = X.shape
+		return tf.reshape(X, (-1, ) + self.shape)
+
+	def log_det(self): return .0
+
+	def call_inv(self, X): return tf.reshape(X, self.input_shape)
+
 
 
 

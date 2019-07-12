@@ -170,8 +170,15 @@ class Glow():
 		g = Generator(latent.Normal(d)) 
 
 		# Pre-process steps. 
-		g.add(UniformDequantize	(input_shape=input_shape)) 
-		g.add(Normalize			(input_shape=input_shape))
+		#g.add(UniformDequantize	(input_shape=input_shape)) 
+
+		#deqModel = Sequential()
+		#deqModel.add(..)
+		#deqModel.add(..)
+
+		g.add(VariationalDequantize (input_shape=input_shape, dequantize_model=None)) 
+		#g.add(UniformDequantize(input_shape=input_shape))
+		g.add(Normalize		(input_shape=input_shape))
 
 		# Build model using additive coupling layers. 
 		g.add(Squeeze())
@@ -184,8 +191,6 @@ class Glow():
 				ac.add(Conv2D(64, kernel_size=(3,3), activation="relu"))
 				
 				ac.add(Flatten())
-				#ac.add(Dense(100, activation="relu"))
-				#ac.add(Dense(100, activation="relu"))
 				ac.add(Dense(50, activation="relu"))
 				ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
 
@@ -200,17 +205,17 @@ class Glow():
 			#d = d//2
 
 		ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
+		ac.add(Conv2D(64, kernel_size=(3,3), activation="relu"))
 		ac.add(Flatten())
-		ac.add(Dense(100, activation="relu"))
-		ac.add(Dense(100, activation="relu"))
-		ac.add(Dense(100, activation="relu"))
+		ac.add(Dense(50, activation="relu"))
 		ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
 
 		g.add(ac) 
 
-		g.compile(optimizer=keras.optimizers.Adam(0.001))
+		g.compile(optimizer=keras.optimizers.Adam(0.0001))
 
 		g.predict(X[:2])
+
 
 		for layer in g.layers: 
 			if isinstance(layer, AffineCoupling): layer.summary()
