@@ -1,10 +1,4 @@
-"""
-	Explain file. 
-
-"""
-
 import os 
-
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['TF_CPP_MIN_VLOG_LEVEL']='3'
 
@@ -14,16 +8,11 @@ import tensorflow.keras as keras
 import numpy as np
 import invtf.latent
 import matplotlib.pyplot as plt 
-from invtf.dequantize import *
 from invtf.layers import *
 
 
-
 """
-
 	TODO: 
-
-	- Support specifying different latent distributions, see e.g. NICE. 
 
 	- The fit currently uses a dummy 'y=X'. It is not used, but removing it causes an error with 'total_loss'. 
 		Removing might speed up. 
@@ -34,6 +23,11 @@ from invtf.layers import *
 
 """
 class Generator(keras.Sequential): 
+
+	"""
+
+
+	"""
 
 	def __init__(self, latent=latent.Normal(28**2)):
 		self.latent = latent 
@@ -136,8 +130,8 @@ class Generator(keras.Sequential):
 
 			# allow deactivating dequenatize 
 			# refactor to just look into name of layer and skip if it has dequantize in name or something like that. 
-			if not dequantize and isinstance(layer, UniformDequantize): 	continue	
-			if not dequantize and isinstance(layer, VariationalDequantize): continue	
+			if not dequantize and isinstance(layer, invtf.dequantize.UniformDequantize): 	continue	
+			#if not dequantize and isinstance(layer, invtf.dequantize.VariationalDequantize): continue	
 
 			if isinstance(layer, MultiScale): 
 				X, Z = layer.call(X)

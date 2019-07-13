@@ -170,14 +170,39 @@ class Glow():
 		g = Generator(latent.Normal(d)) 
 
 		# Pre-process steps. 
-		#g.add(UniformDequantize	(input_shape=input_shape)) 
+		g.add(UniformDequantize	(input_shape=input_shape)) 
 
-		#deqModel = Sequential()
-		#deqModel.add(..)
-		#deqModel.add(..)
+		# Variational Dequantization. 
+		#il = keras.layers.InputLayer(input_shape=input_shape)
+		#g.add(il)
 
-		g.add(VariationalDequantize (input_shape=input_shape, dequantize_model=None)) 
-		#g.add(UniformDequantize(input_shape=input_shape))
+		"""vardeq = VariationalDequantize()
+		vardeq.add(Squeeze())
+
+		ac = AffineCoupling(part=0, strategy=SplitChannelsStrategy())
+		ac.add(keras.layers.InputLayer(input_shape=input_shape))
+		ac.add(Conv2D(64, kernel_size=(3,3), activation="relu"))
+		ac.add(Flatten())
+		ac.add(Dense(50, activation="relu"))
+		ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
+
+		vardeq.add(ac) 
+
+		ac = AffineCoupling(part=1, strategy=SplitChannelsStrategy())
+		ac.add(keras.layers.InputLayer(input_shape=input_shape))
+		ac.add(Conv2D(64, kernel_size=(3,3), activation="relu"))
+		ac.add(Flatten())
+		ac.add(Dense(50, activation="relu"))
+		ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
+
+		vardeq.add(ac) 
+		
+		vardeq.add(Reshape((32,32,3)))""" # Figure out initialization; take from glow? 
+
+
+		#g.add(vardeq) 
+
+
 		g.add(Normalize		(input_shape=input_shape))
 
 		# Build model using additive coupling layers. 
@@ -219,6 +244,9 @@ class Glow():
 
 		for layer in g.layers: 
 			if isinstance(layer, AffineCoupling): layer.summary()
+
+		for layer in g.layers:
+			if isinstance(layer, VariationalDequantize): layer.summary()
 
 		return g
 
