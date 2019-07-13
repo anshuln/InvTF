@@ -10,8 +10,48 @@ from invtf.coupling_strategy import *
 	The log-det computations normalizes wrt full dimension. 
 
 """
+#TODO Write unit tests
+class LayerWithGrads(keras.layers.Layer):    
+	'''
+	This is a virtual class from which all layer classes need to inherit
+	It has the function `compute gradients` which is used for constant 
+	memory backprop.
+	'''
+	def __init__(self,**kwargs):
+		super(LayerWithGrads,self).__init__(**kwargs)
 
-class Linear(keras.layers.Layer): 
+	def call(self,X):
+		raise NotImplementedError
+
+	def call_inv(self,X):
+		raise NotImplementedError
+
+	def compute_gradients(self,x,dy,regularizer=None):  
+		'''
+		Computes gradients for backward pass
+		Args:
+			x - tensor compatible with forward pass, input to the layer
+			dy - incoming gradient from backprop
+			regularizer - function, indicates dependence of loss on weights of layer
+		Returns
+			dy - gradients wrt input, to be backpropagated
+			grads - gradients wrt weights
+		'''
+		#TODO check if log_det of AffineCouplingLayer depends needs a regularizer.
+		with tf.GradientTape() as tape:
+			tape.watch(x)
+			y_ = self.call(x)   #Required to register the operation onto the gradient tape
+		grads_combined = tape.gradient(y_,[x]+self.trainable_variables,output_gradients=dy)
+		dy,grads = grads_combined[0],grads_combined[1:]
+
+		if regularizer is not None:
+			with tf.GradientTape() as tape:
+				reg = -regularizer()
+			grads_wrt_reg = tape.gradient(reg, self.trainable_variables)
+			grads = [a[0]+a[1] for a in zip(grads,grads_wrt_reg)]
+		return dy,grads
+
+class Linear(LayerWithGrads): 
 
 	def __init__(self, **kwargs): super(Linear, self).__init__(**kwargs)
 
@@ -39,7 +79,7 @@ class Linear(keras.layers.Layer):
 		return input_shape
 
 
-class Affine(keras.layers.Layer): 
+class Affine(LayerWithGrads): 
 
 	"""
 		The exp parameter allows the scaling to be exp(s) \odot X. 
@@ -154,6 +194,27 @@ class AdditiveCoupling(keras.Sequential):
 
 	def compute_output_shape(self, input_shape): return input_shape
 
+	def compute_gradients(self,x,dy,regularizer=None):  
+		'''
+		Computes gradients for backward pass
+		Since the coupling layers do not inherit from `LayerWithGrads`, this 
+		function is re-written. See TODO of AffineCoupling for further info
+		Args:
+			x - tensor compatible with forward pass, input to the layer
+			dy - incoming gradient from backprop
+			regularizer - function, indicates dependence of loss on weights of layer
+		Returns
+			dy - gradients wrt input, to be backpropagated
+			grads - gradients wrt weights
+		'''
+		with tf.GradientTape() as tape:
+			tape.watch(x)
+			y_ = self.call(x)   #Required to register the operation onto the gradient tape
+		grads_combined = tape.gradient(y_,[x]+self.trainable_variables,output_gradients=dy)
+		dy,grads = grads_combined[0],grads_combined[1:]
+
+		return dy,grads
+
 
 
 """
@@ -168,7 +229,7 @@ class AdditiveCoupling(keras.Sequential):
 	For now assumes the use of convolutions 
 
 """
-class AffineCoupling(keras.Sequential):  	
+class AffineCoupling(keras.Sequential):  	#TODO Check gradient computations with and without reg
 
 	unique_id = 1
 
@@ -268,7 +329,25 @@ class AffineCoupling(keras.Sequential):
 	def summary(self, line_length=None, positions=None, print_fn=None):
 		print_summary(self, line_length=line_length, positions=positions, print_fn=print_fn) # fixes stupid issue.
 
+	def compute_gradients(self,x,dy,regularizer=None):  
+		'''
+		Computes gradients for backward pass
+		Args:
+			x - tensor compatible with forward pass, input to the layer
+			dy - incoming gradient from backprop
+			regularizer - function, indicates dependence of loss on weights of layer
+		Returns
+			dy - gradients wrt input, to be backpropagated
+			grads - gradients wrt weights
+		'''
+		#TODO check if log_det of AffineCouplingLayer needs a regularizer.
+		with tf.GradientTape() as tape:
+			tape.watch(x)
+			y_ = self.call(x)   #Required to register the operation onto the gradient tape
+		grads_combined = tape.gradient(y_,[x]+self.trainable_variables,output_gradients=dy)
+		dy,grads = grads_combined[0],grads_combined[1:]
 
+		return dy,grads
 
 
 """
@@ -278,7 +357,7 @@ class AffineCoupling(keras.Sequential):
 		- Downscale images, e.g. alternate pixels and have 4 lower dim images and stack them. 
 		- ... 
 """
-class Squeeze(keras.layers.Layer): 
+class Squeeze(LayerWithGrads): 
 
 	def call(self, X): 
 		n, self.w, self.h, self.c = X.shape
@@ -292,7 +371,7 @@ class Squeeze(keras.layers.Layer):
 
 # TODO: for now assumes target is +-1, refactor to support any target. 
 # Refactor 127.5 
-class Normalize(keras.layers.Layer):  # normalizes data after dequantization. 
+class Normalize(LayerWithGrads):  # normalizes data after dequantization. 
 
 	def __init__(self, target=[-1,+1], scale=127.5, input_shape=None): 
 		super(Normalize, self).__init__(input_shape=input_shape)
@@ -333,7 +412,7 @@ class MultiScale(keras.layers.Layer):
 class ActNorm(keras.layers.Layer): pass 
 
 
-class Inv1x1Conv(keras.layers.Layer):  
+class Inv1x1Conv(LayerWithGrads):  
 
 	"""
 		Based on Glow page 11 appendix B. 
@@ -375,12 +454,13 @@ class Inv1x1Conv(keras.layers.Layer):
 		return tf.nn.conv2d(Z, _W, [1,1,1,1], "SAME")
 
 	def log_det(self): 		 # TODO: Fix this issue!!! 
+		print(self.h, self.w, tf.linalg.det(self.W))
 		return self.h * self.w * tf.math.log(tf.abs( tf.linalg.det(self.W) ))  
 
 	def compute_output_shape(self, input_shape): return input_shape
 
 
-class Glow1x1Conv(keras.layers.Layer): 
+class Glow1x1Conv(LayerWithGrads): 
 
 	# Could be speed up parameterizing in LU decomposition. 
 	def build(self, input_shape): 
@@ -426,7 +506,7 @@ class Glow1x1Conv(keras.layers.Layer):
 
 
 
-class Conv3DCirc(keras.layers.Layer): 
+class Conv3DCirc(LayerWithGrads): 
 
 	def __init__(self,trainable=True): 
 		self.built = False
@@ -483,21 +563,6 @@ class Conv3DCirc(keras.layers.Layer):
 
 	def compute_output_shape(self, input_shape): 
 		return tf.TensorShape(input_shape[1:])
-
-
-class Reshape(keras.layers.Layer):
-	def __init__(self, shape): 
-		self.shape = shape
-		super(Reshape, self).__init__()
-
-	def call(self, X): 
-		self.prev_shape = X.shape
-		return tf.reshape(X, (-1, ) + self.shape)
-
-	def log_det(self): return .0
-
-	def call_inv(self, X): return tf.reshape(X, self.input_shape)
-
 
 
 
