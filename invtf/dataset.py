@@ -31,6 +31,15 @@ class cifar10():
 		return self.X
 
 
+class celeba(): 
+	def __init__(self, bits=8, resolution=64): pass 
+
+
+class imagenet():  # get from ?? 
+	def __init__(self, bits=8, resolution=64): pass 
+
+
+
 
 
 

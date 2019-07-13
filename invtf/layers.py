@@ -215,12 +215,15 @@ class AffineCoupling(keras.layers.Layer): # Sequential):
 
 		# TODO: Could have a part of network learned specifically for s,t to not ONLY have wegith sharing? 
 		
+		# Using strategy from 
+		# https://github.com/openai/glow/blob/eaff2177693a5d84a1cf8ae19e8e0441715b82f8/model.py#L376
 		X = tf.reshape(X, (-1, h, w, c*2))
-		#s = X[:, :, :, :c//2] # add a strategy pattern to decide how the output is split. 
-		#t = X[:, :, :, c//2:]  
+		s = X[:, :, :, ::2] # add a strategy pattern to decide how the output is split. 
+		t = X[:, :, :, 1::2]  
+		#s = tf.math.sigmoid(s)
 
-		s = X[:, :, w//2:, :]
-		t = X[:, :, :w//2, :]  
+		#s = X[:, :, w//2:, :]
+		#t = X[:, :, :w//2, :]  
 
 		s = tf.reshape(s, in_shape)
 		t = tf.reshape(t, in_shape)
@@ -233,7 +236,7 @@ class AffineCoupling(keras.layers.Layer): # Sequential):
 
 		if self.part == 0: 
 			s, t 	= self.call_(x1)
-			x0 		= x0*s + t
+			x0 		= x0*s + t # glow changed order of this? i.e. translate then scale. 
 
 		if self.part == 1: 
 			s, t 	= self.call_(x0)
@@ -501,22 +504,11 @@ class Reshape(keras.layers.Layer):
 
 
 
-class InvResNet(keras.layers.Layer): 			pass # model should automatically use gradient checkpointing if this is used. 
+class InvResNet(keras.layers.Layer): 			
 
 
-# the 3D case, refactor to make it into the general case. 
-# make experiment with nD case, maybe put reshape into it? 
-# Theoretically time is the same? 
-class CircularConv(keras.layers.Layer): 
 
-	def __init__(self, dim=3):  # 
-		self.dim = dim 
 
-	def call(self, X): 		pass
-	
-	def call_inv(self, X): 	pass
-
-	def log_det(self): 		pass
-
+	pass # model should automatically use gradient checkpointing if this is used. 
 
 
