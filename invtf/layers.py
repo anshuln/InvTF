@@ -168,7 +168,9 @@ class AdditiveCoupling(keras.Sequential):
 	For now assumes the use of convolutions 
 
 """
-class AffineCoupling(keras.Sequential):  	
+class AffineCoupling(keras.layers.Layer): # Sequential):  	
+
+	def add(self, layer): self.layers.append(layer)
 
 	unique_id = 1
 
@@ -177,6 +179,10 @@ class AffineCoupling(keras.Sequential):
 		AffineCoupling.unique_id += 1
 		self.part 		= part 
 		self.strategy 	= strategy
+		self.layers = []
+		self._is_graph_network = False
+
+	def _check_trainable_weights_consistency(self): return True
 
 	def build(self, input_shape):
 
@@ -195,17 +201,24 @@ class AffineCoupling(keras.Sequential):
 			out_dim = layer.compute_output_shape(input_shape=out_dim)
 			layer.output_shape_ = out_dim
 
+
+		super(AffineCoupling, self).build(input_shape)
+		self.built = True
+
 	def call_(self, X): 
 
 		in_shape = tf.shape(X)
 		n, h, w, c = X.shape
 
 		for layer in self.layers: 
-			X = layer.call(X) # residual 
+			X = layer.call(X) 
 
 		# TODO: Could have a part of network learned specifically for s,t to not ONLY have wegith sharing? 
 		
 		X = tf.reshape(X, (-1, h, w, c*2))
+		#s = X[:, :, :, :c//2] # add a strategy pattern to decide how the output is split. 
+		#t = X[:, :, :, c//2:]  
+
 		s = X[:, :, w//2:, :]
 		t = X[:, :, :w//2, :]  
 
@@ -226,6 +239,8 @@ class AffineCoupling(keras.Sequential):
 			s, t 	= self.call_(x0)
 			x1 		= x1*s + t 
 
+		self.precompute_log_det(s, X)
+
 		X 		= self.strategy.combine(x0, x1)
 		return X
 
@@ -242,26 +257,11 @@ class AffineCoupling(keras.Sequential):
 		Z 		= self.strategy.combine(z0, z1)
 		return Z
 
-
-	def log_det(self): 		 
-
-		# TODO: save 's' instead of recomputing. 
-
-		X 		= self.input
+	def precompute_log_det(self, s, X): 
 		n 		= tf.dtypes.cast(tf.shape(X)[0], tf.float32)
+		self._log_det = tf.reduce_sum(tf.math.log(tf.abs(s))) / n
 
-		x0, x1 = self.strategy.split(X)
-
-		if self.part == 0: 
-			s, t 	= self.call_(x1)
-		if self.part == 1: 
-			s, t 	= self.call_(x0)
-
-		# there is an issue with 's' being divided by dimension 'd' later:
-		# If we used MultiScale it will be lower dimensional, in this case
-		# we should not divide by d but d//2. 
-
-		return tf.reduce_sum(tf.math.log(tf.abs(s))) / n
+	def log_det(self): 		  return self._log_det
 
 	def compute_output_shape(self, input_shape): return input_shape
 
@@ -294,7 +294,7 @@ class Squeeze(keras.layers.Layer):
 # Refactor 127.5 
 class Normalize(keras.layers.Layer):  # normalizes data after dequantization. 
 
-	def __init__(self, target=[-1,+1], scale=127.5, input_shape=None): 
+	def __init__(self, target=[-1,+1], scale=127.5, input_shape=[]): 
 		super(Normalize, self).__init__(input_shape=input_shape)
 		self.target = target
 		self.d 		= np.prod(input_shape)
@@ -517,5 +517,6 @@ class CircularConv(keras.layers.Layer):
 	def call_inv(self, X): 	pass
 
 	def log_det(self): 		pass
+
 
 

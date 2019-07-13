@@ -172,12 +172,28 @@ class Glow():
 		# Pre-process steps. 
 		#g.add(UniformDequantize	(input_shape=input_shape)) 
 
-		#deqModel = Sequential()
-		#deqModel.add(..)
-		#deqModel.add(..)
+		# Variational Dequantization. 
+		il = keras.layers.InputLayer(input_shape=input_shape)
+		g.add(il)
 
-		g.add(VariationalDequantize (input_shape=input_shape, dequantize_model=None)) 
-		#g.add(UniformDequantize(input_shape=input_shape))
+		vardeq = VariationalDequantize()
+
+		ac = AffineCoupling(part=1, strategy=SplitChannelsStrategy())
+		
+		ac.add(keras.layers.InputLayer(input_shape=input_shape))
+		ac.add(Conv2D(64, kernel_size=(3,3), activation="relu"))
+		ac.add(Flatten())
+		ac.add(Dense(50, activation="relu"))
+		ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
+		
+		vardeq.add(Squeeze())
+		vardeq.add(ac) # the input of the AffineCoupling needs to be connected to all the other things... 
+		vardeq.add(Reshape((32,32,3)))
+
+
+		g.add(vardeq) 
+
+
 		g.add(Normalize		(input_shape=input_shape))
 
 		# Build model using additive coupling layers. 
@@ -219,6 +235,9 @@ class Glow():
 
 		for layer in g.layers: 
 			if isinstance(layer, AffineCoupling): layer.summary()
+
+		for layer in g.layers:
+			if isinstance(layer, VariationalDequantize): layer.summary()
 
 		return g
 

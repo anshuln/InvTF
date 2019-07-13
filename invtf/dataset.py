@@ -25,7 +25,7 @@ class cifar10():
 
 	def __init__(self, digit=-1):  # -1 => all classes
 		(self.X, y), (self.X_test, y_test) = datasets.cifar10.load_data()
-		self.X = self.X
+		self.X = self.X.astype(np.float32)
 
 	def images(self): 
 		return self.X
