@@ -5,41 +5,7 @@ from tensorflow.keras.layers import ReLU
 from invtf.override import print_summary
 from invtf.coupling_strategy import *
 
-"""
-	Known issue with multi-scale architecture. 
-	The log-det computations normalizes wrt full dimension. 
-
-"""
-
-class Linear(keras.layers.Layer): 
-
-	def __init__(self, **kwargs): super(Linear, self).__init__(**kwargs)
-
-	def build(self, input_shape): 
-
-		assert len(input_shape) == 2
-		_, d = input_shape
-
-		self.W = self.add_weight(shape=(d, d), 	initializer='identity', name="linear_weight")
-		self.b = self.add_weight(shape=(d), 	initializer='zero',		name="linear_bias")
-		
-		super(Linear, self).build(input_shape)
-		self.built = True
-
-	def call(self, X): 		return X @ self.W + self.b 
-
-	def call_inv(self, Z):  return (Z - self.b) @ tf.linalg.inv(self.W)
-
-	def jacobian(self):		return self.W
-
-	def log_det(self): 		return tf.math.log(tf.abs(tf.linalg.det(self.jacobian())))
-
-	def compute_output_shape(self, input_shape): 
-		self.output_shape = input_shape
-		return input_shape
-
-
-class Affine(keras.layers.Layer): 
+class ActNorm(keras.layers.Layer): 
 
 	"""
 		The exp parameter allows the scaling to be exp(s) \odot X. 
@@ -48,111 +14,29 @@ class Affine(keras.layers.Layer):
 
 	def __init__(self, exp=False, **kwargs): 
 		self.exp = exp
-		super(Affine, self).__init__(**kwargs)
+		super(ActNorm, self).__init__(**kwargs)
 
 	def build(self, input_shape): 
 
-		#assert len(input_shape) == 2
-		d = input_shape[1:]
+		n, h, w, c = input_shape
+		self.h = h
+		self.w = w
 
-		self.w = self.add_weight(shape=d, 	initializer='ones', name="affine_scale") 
-		self.b = self.add_weight(shape=d, 	initializer='zero', name="affine_bias")
+		self.s = self.add_weight(shape=c, 	initializer='ones', name="affine_scale") 
+		self.b = self.add_weight(shape=c, 	initializer='zero', name="affine_bias")
 
-		super(Affine, self).build(input_shape)
+		super(ActNorm, self).build(input_shape)
 		self.built = True
 
-	def call(self, X): 		
-		if self.exp: 	return X * tf.exp(self.w) + self.b 
-		else: 			return X * self.w 		  + self.b
+	def call(self, X): 		return X * self.s + self.b
+	def call_inv(self, Z):  return (Z - self.b) / self.s
 
-	def call_inv(self, Z):  
-		if self.exp:	return (Z - self.b) / tf.exp(self.w)
-		else: 			return (Z - self.b) / self.w
-
-	def jacobian(self):		return self.w
-
-	def eigenvalues(self): 	return self.w
-
-	def log_det(self): 		
-		if self.exp: 	return tf.reduce_sum(tf.abs(self.eigenvalues()))
-		else: 			return tf.reduce_sum(tf.math.log(tf.abs(self.eigenvalues())))
+	def log_det(self): 		return self.h * self.w * tf.reduce_sum(tf.math.log(tf.abs(self.s)))
 
 	def compute_output_shape(self, input_shape): 
 		self.output_shape = input_shape
 		return input_shape
 
-
-
-"""
-	For simplicity we vectorize input and apply coupling to even/odd entries. 
-	Could also use upper/lower. Refactor this to support specifying the pattern as a parameter. 
-
-	TODO: 
-		Potentially refactor so we can add directly to AdditiveCoupling instead of creating 'm'
-		by (potentially adding to Sequential) and passing this on to AdditiveCoupling. 
-		The main issue is AdditiveCoupling is R^2-> R^2 while m:R^1->R^1, so if we 
-		add directly to AdditiveCoupling we run into issues with miss matching dimensions. 
-	
-"""
-class AdditiveCoupling(keras.Sequential): 
-
-	unique_id = 1
-
-	def __init__(self, part=0, strategy=SplitOnHalfStrategy()): # strategy: alternate / split  ;; alternate does odd/even, split has upper/lower. 
-		super(AdditiveCoupling, self).__init__(name="add_coupling_%i"%AdditiveCoupling.unique_id)
-		AdditiveCoupling.unique_id += 1
-		self.part 	= part 
-		self.strategy = strategy
-
-
-	def build(self, input_shape):
-
-		self.layers[0].build(input_shape=(None, 28**2/2))
-		out_dim = self.layers[0].compute_output_shape(input_shape=(None, 28**2/2))
-
-		for layer in self.layers[1:]:  
-			layer.build(input_shape=out_dim)
-			out_dim = layer.compute_output_shape(input_shape=out_dim)
-
-	def call_(self, X): 
-		for layer in self.layers: 
-			X = layer.call(X)
-		return X
-
-	def call(self, X): 		
-		shape 	= tf.shape(X)
-		d 		= tf.reduce_prod(shape[1:])
-		X 		= tf.reshape(X, (shape[0], d))
-
-		x0, x1 = self.strategy.split(X)
-
-		if self.part == 0: x0 		= x0 + self.call_(x1)
-		if self.part == 1: x1 		= x1 + self.call_(x0)
-
-		X = self.strategy.combine(x0, x1)
-
-		X 		= tf.reshape(X, shape)
-		return X
-
-	def call_inv(self, Z):	 
-		shape 	= tf.shape(Z)
-		d 		= tf.reduce_prod(shape[1:])
-		Z 		= tf.reshape(Z, (shape[0], d))
-
-		z0, z1 = self.strategy.split(Z)
-		
-		if self.part == 0: z0 		= z0 - self.call_(z1)
-		if self.part == 1: z1 		= z1 - self.call_(z0)
-
-		Z = self.strategy.combine(z0, z1)
-
-		Z 		= tf.reshape(Z, shape)
-		return Z
-
-
-	def log_det(self): 		return 0. 
-
-	def compute_output_shape(self, input_shape): return input_shape
 
 
 
@@ -273,6 +157,279 @@ class AffineCoupling(keras.layers.Layer): # Sequential):
 
 
 
+"""
+	Known issue with multi-scale architecture. 
+	The log-det computations normalizes wrt full dimension. 
+
+"""
+
+class Linear(keras.layers.Layer): 
+
+	def __init__(self, **kwargs): super(Linear, self).__init__(**kwargs)
+
+	def build(self, input_shape): 
+
+		assert len(input_shape) == 2
+		_, d = input_shape
+
+		self.W = self.add_weight(shape=(d, d), 	initializer='identity', name="linear_weight")
+		self.b = self.add_weight(shape=(d), 	initializer='zero',		name="linear_bias")
+		
+		super(Linear, self).build(input_shape)
+		self.built = True
+
+	def call(self, X): 		return X @ self.W + self.b 
+
+	def call_inv(self, Z):  return (Z - self.b) @ tf.linalg.inv(self.W)
+
+	def jacobian(self):		return self.W
+
+	def log_det(self): 		return tf.math.log(tf.abs(tf.linalg.det(self.jacobian())))
+
+	def compute_output_shape(self, input_shape): 
+		self.output_shape = input_shape
+		return input_shape
+
+
+class Affine(keras.layers.Layer): 
+
+	"""
+		The exp parameter allows the scaling to be exp(s) \odot X. 
+		This cancels out the log in the log_det computations. 
+	"""
+
+	def __init__(self, exp=False, **kwargs): 
+		self.exp = exp
+		super(Affine, self).__init__(**kwargs)
+
+	def build(self, input_shape): 
+
+		#assert len(input_shape) == 2
+		d = input_shape[1:]
+
+		self.w = self.add_weight(shape=d, 	initializer='ones', name="affine_scale") 
+		self.b = self.add_weight(shape=d, 	initializer='zero', name="affine_bias")
+
+		super(Affine, self).build(input_shape)
+		self.built = True
+
+	def call(self, X): 		
+		if self.exp: 	return X * tf.exp(self.w) + self.b 
+		else: 			return X * self.w 		  + self.b
+
+	def call_inv(self, Z):  
+		if self.exp:	return (Z - self.b) / tf.exp(self.w)
+		else: 			return (Z - self.b) / self.w
+
+	def jacobian(self):		return self.w
+
+	def eigenvalues(self): 	return self.w
+
+	def log_det(self): 		
+		if self.exp: 	return tf.reduce_sum(tf.abs(self.eigenvalues()))
+		else: 			return tf.reduce_sum(tf.math.log(tf.abs(self.eigenvalues())))
+
+	def compute_output_shape(self, input_shape): 
+		self.output_shape = input_shape
+		return input_shape
+
+
+
+class Inv1x1Conv(keras.layers.Layer):  
+	"""
+		Based on Glow page 11 appendix B. 
+		It is possible to speed up determinant computation by using PLU or QR decomposition
+		as proposed in Glow and Emerging Conv papers respectively. 
+
+		Add bias to this operation? Try to see if it makes any difference. 
+
+		Try to compare speed / numerical stability etc for different implementations: 
+
+			1. PLU decomposition
+			2. QR
+			3. Normal determinant O(c^3)
+			4. tensordot vs conv2d. 
+	"""
+
+	def build(self, input_shape): 
+		_, h, w, c = input_shape
+		self.c = c
+		self.h = h
+		self.w = w
+
+		# random orthogonal matrix 
+		# check if tf.linalg.qr and tf.linalg.lu are more stable than scipy. 
+		self.kernel 	= self.add_weight(initializer=keras.initializers.Orthogonal(), shape=(c, c), name="inv_1x1_conv_P")
+	
+		super(Inv1x1Conv, self).build(input_shape)
+		self.built = True
+
+	def call(self, X): 	
+		_W = tf.reshape(self.kernel, (1,1, self.c, self.c))
+		return tf.nn.conv2d(X, _W, [1,1,1,1], "SAME")
+
+	def call_inv(self, Z):  
+		# TODO: only compute inverse when kernel is updated. 
+		self.kernel_inv = tf.dtypes.cast(tf.linalg.inv(tf.dtypes.cast(self.kernel, dtype=tf.float64)), dtype=tf.float32) 
+		_W = tf.reshape(self.kernel_inv, (1,1, self.c, self.c))
+		return tf.nn.conv2d(Z, _W, [1,1,1,1], "SAME")
+
+	def log_det(self): 		  # det computations are way too instable here.. 
+		return self.h * self.w * tf.math.log(tf.abs( tf.linalg.det(self.kernel) ))   
+
+	def compute_output_shape(self, input_shape): return input_shape
+
+
+
+
+class Inv1x1ConvPLU(keras.layers.Layer):  
+	"""
+		Based on Glow page 11 appendix B. 
+		It is possible to speed up determinant computation by using PLU or QR decomposition
+		as proposed in Glow and Emerging Conv papers respectively. 
+
+		Add bias to this operation? Try to see if it makes any difference. 
+
+		Try to compare speed / numerical stability etc for different implementations: 
+
+			1. PLU decomposition
+			2. QR
+			3. Normal determinant O(c^3)
+			4. tensordot vs conv2d. 
+	"""
+
+	def build(self, input_shape): 
+		_, h, w, c = input_shape
+		self.c = c
+		self.h = h
+		self.w = w
+
+		# random orthogonal matrix 
+		# check if tf.linalg.qr and tf.linalg.lu are more stable than scipy. 
+		import scipy
+		w 		= scipy.linalg.qr(np.random.normal(0, 1, (self.c, self.c)))[0].astype(np.float32)
+		P, L, U = scipy.linalg.lu(w)
+
+		def init_P(self, shape=None, dtype=None): return P
+		def init_L(self, shape=None, dtype=None): return L
+		def init_U(self, shape=None, dtype=None): return U
+
+		# use the PLU decomposition as they do in the article? 
+		# I don't think the non PLU cae is stable enough? 
+
+		self.P = self.add_weight(initializer=init_P, shape=P.shape, name="inv_1x1_conv_P", trainable=False)
+		self.L = self.add_weight(initializer=init_L, shape=L.shape, name="inv_1x1_conv_L")
+		self.U = self.add_weight(initializer=init_U, shape=U.shape, name="inv_1x1_conv_U")
+
+		L_mask = tf.constant(np.triu(np.ones((c,c)), k=+1), dtype=tf.float32)
+		P_mask = tf.constant(np.tril(np.ones((c,c)), k=-1), dtype=tf.float32)
+		I 	   = tf.constant(np.identity(c), dtype=tf.float32)
+
+		self.P = self.P * P_mask + I
+		self.L = self.L * L_mask + I
+
+		self.kernel = self.P @ self.L @ self.U # which order of matrix mult is faster? P is permutation and thus very sparse. 
+
+		self.P_inv = tf.linalg.inv(tf.dtypes.cast(P, dtype=tf.float64))
+		self.L_inv = tf.linalg.inv(tf.dtypes.cast(L, dtype=tf.float64))
+		self.U_inv = tf.linalg.inv(tf.dtypes.cast(U, dtype=tf.float64))
+
+		self.kernel_inv 	= tf.linalg.inv(self.kernel) # tf.dtypes.cast(self.U_inv @ self.L_inv @ self.P_inv, dtype=tf.float32)
+
+		#self.I_ 			= self.kernel @ tf.linalg.inv(self.kernel)
+		#self.I 				= self.kernel @ self.kernel_inv
+	
+		super(Inv1x1Conv, self).build(input_shape)
+		self.built = True
+
+	def call(self, X): 	
+		_W = tf.reshape(self.kernel, (1,1, self.c, self.c))
+		return tf.nn.conv2d(X, _W, [1,1,1,1], "SAME")
+
+	def call_inv(self, Z):  
+		_W = tf.reshape(self.kernel_inv, (1,1, self.c, self.c))
+		return tf.nn.conv2d(Z, _W, [1,1,1,1], "SAME")
+
+	def log_det(self): 		  # det computations are way too instable here.. 
+		return self.h * self.w * tf.math.log(tf.abs( tf.linalg.det(self.kernel) ))   # Looks fine? 
+
+	def compute_output_shape(self, input_shape): return input_shape
+
+
+"""
+	For simplicity we vectorize input and apply coupling to even/odd entries. 
+	Could also use upper/lower. Refactor this to support specifying the pattern as a parameter. 
+
+	TODO: 
+		Potentially refactor so we can add directly to AdditiveCoupling instead of creating 'm'
+		by (potentially adding to Sequential) and passing this on to AdditiveCoupling. 
+		The main issue is AdditiveCoupling is R^2-> R^2 while m:R^1->R^1, so if we 
+		add directly to AdditiveCoupling we run into issues with miss matching dimensions. 
+	
+"""
+class AdditiveCoupling(keras.Sequential): 
+
+	unique_id = 1
+
+	def __init__(self, part=0, strategy=SplitOnHalfStrategy()): # strategy: alternate / split  ;; alternate does odd/even, split has upper/lower. 
+		super(AdditiveCoupling, self).__init__(name="add_coupling_%i"%AdditiveCoupling.unique_id)
+		AdditiveCoupling.unique_id += 1
+		self.part 	= part 
+		self.strategy = strategy
+
+
+	def build(self, input_shape):
+
+		self.layers[0].build(input_shape=(None, 28**2/2))
+		out_dim = self.layers[0].compute_output_shape(input_shape=(None, 28**2/2))
+
+		for layer in self.layers[1:]:  
+			layer.build(input_shape=out_dim)
+			out_dim = layer.compute_output_shape(input_shape=out_dim)
+
+	def call_(self, X): 
+		for layer in self.layers: 
+			X = layer.call(X)
+		return X
+
+	def call(self, X): 		
+		shape 	= tf.shape(X)
+		d 		= tf.reduce_prod(shape[1:])
+		X 		= tf.reshape(X, (shape[0], d))
+
+		x0, x1 = self.strategy.split(X)
+
+		if self.part == 0: x0 		= x0 + self.call_(x1)
+		if self.part == 1: x1 		= x1 + self.call_(x0)
+
+		X = self.strategy.combine(x0, x1)
+
+		X 		= tf.reshape(X, shape)
+		return X
+
+	def call_inv(self, Z):	 
+		shape 	= tf.shape(Z)
+		d 		= tf.reduce_prod(shape[1:])
+		Z 		= tf.reshape(Z, (shape[0], d))
+
+		z0, z1 = self.strategy.split(Z)
+		
+		if self.part == 0: z0 		= z0 - self.call_(z1)
+		if self.part == 1: z1 		= z1 - self.call_(z0)
+
+		Z = self.strategy.combine(z0, z1)
+
+		Z 		= tf.reshape(Z, shape)
+		return Z
+
+
+	def log_det(self): 		return 0. 
+
+	def compute_output_shape(self, input_shape): return input_shape
+
+
+
+
 
 """
 	Try different techniques: I'm implementing the simplest case, just reshape to desired shape. 
@@ -312,7 +469,8 @@ class Normalize(keras.layers.Layer):  # normalizes data after dequantization.
 		Z = Z / self.scale
 		return Z
 
-	def log_det(self): return self.d * tf.math.log(self.scale) 
+	def log_det(self): 
+		return self.d * tf.math.log(self.scale)
 
 
 class MultiScale(keras.layers.Layer): 
@@ -332,100 +490,6 @@ class MultiScale(keras.layers.Layer):
 
 	def log_det(self): return 0.
 
-
-class ActNorm(keras.layers.Layer): pass 
-
-
-class Inv1x1Conv(keras.layers.Layer):  
-
-	"""
-		Based on Glow page 11 appendix B. 
-		It is possible to speed up determinant computation by using PLU or QR decomposition
-		as proposed in Glow and Emerging Conv papers respectively. 
-
-		Add bias to this operation? Try to see if it makes any difference. 
-
-		Try to compare speed / numerical stability etc for different implementations: 
-
-			1. PLU decomposition
-			2. QR
-			3. Normal determinant O(c^3)
-			4. tensordot vs conv2d. 
-	"""
-
-	def __init__(self, **kwargs): super(Inv1x1Conv, self).__init__(**kwargs)
-
-	def build(self, input_shape): 
-
-		_, h, w, c = input_shape
-		self.c = c
-		self.h = h
-		self.w = w
-
-		#w_init = np.linalg.qr(np.random.randn(c,c))[0]
-		self.W 		= self.add_weight(shape=(c, c), initializer=keras.initializers.Orthogonal(gain=1.0, seed=None), name="inv_1x1_conv")
-		self.W_inv 	= tf.linalg.inv(self.W)
-		
-		super(Inv1x1Conv, self).build(input_shape)
-		self.built = True
-
-	def call(self, X): 	
-		_W = tf.reshape(self.W, (1,1, self.c, self.c))
-		return tf.nn.conv2d(X, _W, [1,1,1,1], "SAME")
-
-	def call_inv(self, Z):  
-		_W = tf.reshape(self.W_inv, (1,1, self.c, self.c))
-		return tf.nn.conv2d(Z, _W, [1,1,1,1], "SAME")
-
-	def log_det(self): 		 # TODO: Fix this issue!!! 
-		return self.h * self.w * tf.math.log(tf.abs( tf.linalg.det(self.W) ))  
-
-	def compute_output_shape(self, input_shape): return input_shape
-
-
-class Glow1x1Conv(keras.layers.Layer): 
-
-	# Could be speed up parameterizing in LU decomposition. 
-	def build(self, input_shape): 
-		_, h, w, c = input_shape
-
-		self.h, self.w = h, w
-	
-		# make L and U lower and upper triangular by masking with zeros. 
-		self.L 				= self.add_weight(shape=(c, c), initializer="zeros", name="weights")
-		self.U				= self.add_weight(shape=(c, c), initializer="zeros", name="weights")
-		self.eigenvals		= self.add_weight(shape=(c, 1), initializer="ones", name="weights")
-
-		identity 			= tf.constant(np.identity(c), dtype=tf.float32)
-
-		""" 
-		>>> # Creating masks. 
-		>>> np.triu(np.ones((4,4)), k=+1)
-		array([[0., 1., 1., 1.],
-			   [0., 0., 1., 1.],
-			   [0., 0., 0., 1.],
-			   [0., 0., 0., 0.]])
-		>>> np.tril(np.ones((4,4)), k=-1)
-		array([[0., 0., 0., 0.],
-			   [1., 0., 0., 0.],
-			   [1., 1., 0., 0.],
-			   [1., 1., 1., 0.]])
-		"""
-
-		upper_mask = tf.constant(np.triu(np.ones((c,c)), k=+1), dtype=tf.float32)
-		lower_mask = tf.constant(np.tril(np.ones((c,c)), k=-1), dtype=tf.float32)
-
-		self.L = lower_mask * self.L + identity
-		self.U = upper_mask * self.U + identity
-		
-		self.kernel 		= self.L @ (self.eigenvals * self.U) 
-		self.kernel_inv 	= tf.linalg.inv(self.kernel)
-
-	def call(self, inputs): 		return tf.tensordot(inputs, self.kernel, axes=((-1), (0))) 
-	def call_inv(self, inputs):		return tf.tensordot(inputs, self.kernel_inv, axes=((-1), (0))) 
-	def log_det(self): 				return self.h * self.w * tf.reduce_sum(tf.math.log(tf.abs(self.eigenvals))) 
-
-	def compute_output_shape(self, input_shape): return input_shape
 
 
 
