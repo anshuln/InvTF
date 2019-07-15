@@ -1,4 +1,4 @@
-from invtf 				import Generator
+import invtf 				
 from invtf.visualize 	import visualize_training_2D
 from invtf.layers 		import *
 from invtf.dataset 		import *
@@ -56,7 +56,7 @@ class NICE():
 	def mnist(X):   # assumes mnist. 
 		n, d = X.shape
 
-		g = Generator(latent.Logistic(d)) 
+		g = invtf.Generator(latent.Logistic(d)) 
 
 		# Pre-process steps. 
 		g.add(UniformDequantize	(input_shape=[d])) 
@@ -110,7 +110,7 @@ class RealNVP():
 		input_shape = X.shape[1:]
 		d 			= np.prod(input_shape)
 
-		g = Generator(latent.Normal(d)) 
+		g = invtf.Generator(latent.Normal(d)) 
 
 		# Pre-process steps. 
 		g.add(UniformDequantize	(input_shape=input_shape)) 
@@ -163,90 +163,86 @@ class Glow():
 
 	""" 
 
-	def model(X):  
+	def model(X, verbose=False):  
+
+		# Glow details can be found at : https://github.com/openai/glow/blob/master/model.py#L376
+		default_initializer = keras.initializers.RandomNormal(stddev=0.05)
+		width 				= 128 # width in glow is 512 but we lowered for speed; how much does this hurt performance? 
+		c = 12
+
+
 		input_shape = X.shape[1:]
 		d 			= np.prod(input_shape)
 
-		g = Generator(latent.Normal(d)) 
+		g = invtf.Generator(latent.Normal(d)) 
 
 		# Pre-process steps. 
 		g.add(UniformDequantize	(input_shape=input_shape)) 
 
 		# Variational Dequantization. 
-		#il = keras.layers.InputLayer(input_shape=input_shape)
+		#il = keras.layers.InputLayer(input_shape=input_shape) # why do I have to add this? 
 		#g.add(il)
 
-		"""vardeq = VariationalDequantize()
-		vardeq.add(Squeeze())
+		"""vardeq = VariationalDequantize() # I Think this thing messes up the 'default add input layer'. 
+		vardeq.add(Squeeze()) 
 
-		ac = AffineCoupling(part=0, strategy=SplitChannelsStrategy())
-		ac.add(keras.layers.InputLayer(input_shape=input_shape))
-		ac.add(Conv2D(64, kernel_size=(3,3), activation="relu"))
-		ac.add(Flatten())
-		ac.add(Dense(50, activation="relu"))
-		ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
+		for j in range(2): 
+			ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
+			ac.add(Conv2D(width, kernel_size=(3,3), activation="relu", padding="SAME", 
+							kernel_initializer=default_initializer, bias_initializer="zeros")) 
+			ac.add(Conv2D(width, kernel_size=(1,1), activation="relu", padding="SAME", 
+							kernel_initializer=default_initializer, bias_initializer="zeros"))
+			ac.add(Conv2D(c, kernel_size=(3,3), 				   padding="SAME",
+							kernel_initializer="zeros", bias_initializer="ones"))  # they add 2 here and apply sigmoid. 
 
-		vardeq.add(ac) 
+			g.add(ActNorm())
+			g.add(ac) 
 
-		ac = AffineCoupling(part=1, strategy=SplitChannelsStrategy())
-		ac.add(keras.layers.InputLayer(input_shape=input_shape))
-		ac.add(Conv2D(64, kernel_size=(3,3), activation="relu"))
-		ac.add(Flatten())
-		ac.add(Dense(50, activation="relu"))
-		ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
+		vardeq.add(Reshape((32,32,3)))"""
 
-		vardeq.add(ac) 
-		
-		vardeq.add(Reshape((32,32,3)))""" # Figure out initialization; take from glow? 
-
-
-		#g.add(vardeq) 
-
-
-		g.add(Normalize		(input_shape=input_shape))
+		g.add(Normalize		(input_shape=input_shape)) # normalize after variational dequantization? Add sigmoid? 
 
 		# Build model using additive coupling layers. 
 		g.add(Squeeze())
 
 		for i in range(0, 2): 
+
 			for j in range(2): 
+
+				g.add(ActNorm())
+				g.add(Inv1x1Conv()) 
 
 				ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
 		
-				ac.add(Conv2D(64, kernel_size=(3,3), activation="relu"))
+				ac.add(Conv2D(width, kernel_size=(3,3), activation="relu", padding="SAME", 
+								kernel_initializer=default_initializer, bias_initializer="zeros")) 
+				ac.add(Conv2D(width, kernel_size=(1,1), activation="relu", padding="SAME", 
+								kernel_initializer=default_initializer, bias_initializer="zeros"))
+				ac.add(Conv2D(c, kernel_size=(3,3), 				   padding="SAME",
+								kernel_initializer="zeros", bias_initializer="ones"))  # they add 2 here and apply sigmoid. 
 				
-				ac.add(Flatten())
-				ac.add(Dense(50, activation="relu"))
-				ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
 
 				#g.add(Inv1x1Conv())
-				#g.add(Glow1x1Conv())
 				#g.add(Conv3DCirc())
 				g.add(ac) 
 			
-			g.add(Squeeze())
+			#g.add(Squeeze())
+			#c = c * 4
 
 			#g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
 			#d = d//2
 
-		ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
-		ac.add(Conv2D(64, kernel_size=(3,3), activation="relu"))
-		ac.add(Flatten())
-		ac.add(Dense(50, activation="relu"))
-		ac.add(Dense(d, bias_initializer="ones", kernel_initializer="zeros"))
-
-		g.add(ac) 
-
-		g.compile(optimizer=keras.optimizers.Adam(0.0001))
+		g.compile(optimizer=keras.optimizers.Adam(0.001))
 
 		g.predict(X[:2])
+		#g.init_actnorm(X[:1000) # how much does this change loss? 
 
+		if verbose: 
+			for layer in g.layers: 
+				if isinstance(layer, AffineCoupling): layer.summary()
 
-		for layer in g.layers: 
-			if isinstance(layer, AffineCoupling): layer.summary()
-
-		for layer in g.layers:
-			if isinstance(layer, VariationalDequantize): layer.summary()
+			for layer in g.layers:
+				if isinstance(layer, VariationalDequantize): layer.summary()
 
 		return g
 
