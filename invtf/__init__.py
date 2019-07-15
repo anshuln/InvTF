@@ -336,7 +336,7 @@ class Generator(keras.Sequential):
 
 		enc = self.predict(X[:1])[0].numpy() # don't take Z's, not multiscale architecture for now. 
 
-		ax[1].imshow(enc.reshape(img_shape)/255)
+		ax[1].imshow(enc.reshape(img_shape))
 
 		plt.pause(.1)
 
