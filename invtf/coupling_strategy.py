@@ -111,7 +111,7 @@ class EvenOddStrategy(CouplingStrategy):
 		return x0, x1
 
 	def combine(self, x0, x1): 
-		return tf.reshape(tf.stack([x0, x1], axis=-1), [-1, 28**2])
+		return tf.reshape(tf.stack([x0, x1], axis=-1), self.shape)
 
 class SplitOnHalfStrategy(CouplingStrategy): 
 	
