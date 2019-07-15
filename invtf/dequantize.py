@@ -135,6 +135,7 @@ class VariationalDequantize(keras.layers.Layer):
 		self.layers 			= [] # list that holds all layers. 
 		self._is_graph_network 	= False 
 
+
 	def add(self,layer): 	self.layers.append(layer)
 
 	def build(self, input_shape):
@@ -145,6 +146,10 @@ class VariationalDequantize(keras.layers.Layer):
 			in layers.output_shape_. This is a slight work around. 
 		"""
 		_, h, w, c = input_shape
+
+
+		self.latent 			= invtf.latent.Normal(mean=0, std=1)
+		print(self.layers)
 
 		self.layers[0].build(input_shape=(None, h, w, c))
 		out_dim = self.layers[0].compute_output_shape(input_shape=(None, h, w, c))
@@ -167,14 +172,22 @@ class VariationalDequantize(keras.layers.Layer):
 	def call(self, X): 		
 
 		eps 	= tf.random.normal(tf.shape(X), 0, 1)  # factorize to allow other distributions. 
+
+		self.precompute_loss(eps)
+
+		#eps		= self.latent.sample(shape=tf.shape(X))
 		pred 	= self.call_(eps)
+
 		X 		= X  + pred
 
 		return X
 
 	def call_inv(self, Z):	 return Z 
 
-	def log_det(self): 		 
+	def log_det(self): 		 return 0.
+
+
+	def precompute_loss(self, eps): 
 		"""
 			The implementation is straight-forward, but understanding why it works
 			we need to get into the mathy details of [1]. It probably suffices to read
@@ -206,7 +219,12 @@ class VariationalDequantize(keras.layers.Layer):
 			if isinstance(layer, keras.layers.Reshape): continue 
 			lgdet += layer.log_det()
 
-		return 0. # -lgdet  # Issue here. 
+		eps_logp = self.latent.log_density(eps)
+
+		self.precomputed_loss = lgdet - eps_logp 
+
+	def loss(self): 
+		return -self.precomputed_loss / 127.5 # divide by normalization. 
 
 	def compute_output_shape(self, input_shape): return input_shape
 
