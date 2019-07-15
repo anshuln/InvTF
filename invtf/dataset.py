@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt 
 from tensorflow.keras import datasets 
+import os 
+import tensorflow as tf 
 
 
 ##### REAL DATA SET ### 
@@ -9,6 +11,21 @@ class mnist():
 
 	def __init__(self, digit=-1):  # -1 => all classes
 		(self.X, y), (self.X_test, y_test) = datasets.mnist.load_data()
+		self.X = self.X.astype(np.float32).reshape(60000, 28, 28, 1)
+		#self.X = self.X.reshape(60000, 28**2).astype(np.float32)
+
+		if digit > -1: 
+			self.X      = self.X	 [y 	 == digit]
+			self.X_test = self.X_test[y_test == digit]
+		
+
+	def images(self): 
+		return self.X
+
+class fmnist(): 
+
+	def __init__(self, digit=-1):  # -1 => all classes
+		(self.X, y), (self.X_test, y_test) = datasets.fashion_mnist.load_data()
 		self.X = self.X.astype(np.float32).reshape(60000, 28, 28, 1)
 		#self.X = self.X.reshape(60000, 28**2).astype(np.float32)
 
@@ -31,14 +48,88 @@ class cifar10():
 		return self.X
 
 
+class cifar100(): 
+
+	def __init__(self, digits=-1): 
+		(self.X, y), (self.X_test, y_test) = datasets.cifar100.load_data()
+		self.X = self.X.astype(np.float32)
+
+	def images(self): 
+		return self.X
+
+
+
 class celeba(): 
-	def __init__(self, bits=8, resolution=64): pass 
+
+	def __init__(self, bits=5, resolution=256):  # for now only downloads Glow version. 
+
+		if resolution != 256 or bits != 5: raise NotImplementedError()
+
+		if not os.path.exists("datasets/"): os.makedirs("datasets/")
+
+		from tensorflow.python.keras.utils.data_utils import get_file
+		import tarfile
+
+		print("Starting to download and extract celeb256, it is 4GB, so this might take a long time. ")
+		print("Go grab a cup of coffee. ")
+		loc = get_file("celeb256.tar", "https://storage.googleapis.com/glow-demo/data/celeba-tfr.tar") # located in ~/.keras/celeb256.tar
+		tarf = tarfile.open(loc)
+		loc = loc.replace("celeb256.tar", "")
+		print("Extracting tar into %s"%loc)
+		#tarf.extractall(loc) # make check so if it is already extracted don't do it again. 
+		print("Done extracting into %s"%loc)
+	
+	def load(n=1000): 
+
+		folder = "/home/maximin/.keras/datasets/celeba-tfr/train/"
+		files = [folder + f for f in os.listdir(folder)]
+		
+		ds = tf.data.TFRecordDataset( files )
+
+		print(ds)
+
+		for raw_record in ds.take(1):
+			example = tf.train.Example()
+			print(raw_record.numpy())
+			#print(example)
+
+		
+
+	def generator(self): raise NotImplementedError()
 
 
 class imagenet():  # get from ?? 
-	def __init__(self, bits=8, resolution=64): pass 
+
+	def __init__(self, bits=8, resolution=64): 
+		if resolution not in {32, 64}: raise NotImplementedError("Only support resolution 32 or 64, not %i. "%resolution)
+
+		if not os.path.exists("datasets/"): os.makedirs("datasets/")
+
+		from tensorflow.python.keras.utils.data_utils import get_file
+		import tarfile
+
+		if resolution == 32:  # 4 GB
+			print("Starting to download and extract imagenet32, it is 4GB, so this might take a long time. ")
+			print("Go grab a cup of coffee. ")
+			loc = get_file("imagenet32train.tar", "http://image-net.org/small/train_32x32.tar") # save this location for later use? 
+			tarf = tarfile.open(loc)
+			tarf.extract_all()
+
+		if resolution == 64:  # 12 GB (might take a very long time)
+			print("Starting to download and extract imagenet64, it is 12GB, so this might take a very long time. ")
+			print("Go hit the gym or go for a walk. ")
+			loc = get_file("imagenet32train.tar", "http://image-net.org/small/train_64x64.tar") # save this location for later use? 
+			tarf = tarfile.open(loc)
+			tarf.extract_all()
+	
+	
+	def images(self, n=10000):  # how many to load 
+
+		pass
 
 
+	def generator(self): raise NotImplementedError() # implement a generator later. 
+	
 
 
 
@@ -135,3 +226,12 @@ class TwoSpirals():
 
 		return np.concatenate((spiral1, spiral2), axis=0).astype(np.float32)
 
+
+
+
+if __name__ == "__main__": 
+
+
+	#celeba.load()
+	imagenet(bits=8, resolution=32)
+	
