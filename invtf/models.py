@@ -53,10 +53,12 @@ class NICE():
 
 	"""
 
-	def mnist(X):   # assumes mnist. 
+	def model(X):   # assumes mnist. 
 		n, d = X.shape
 
-		g = invtf.Generator(latent.Logistic(d)) 
+		# This differs from MNIST to CIFAR in original article. 
+		#g = invtf.Generator(latent.Logistic(d))  
+		g = invtf.Generator(latent.Normal(d))  
 
 		# Pre-process steps. 
 		g.add(UniformDequantize	(input_shape=[d])) 
@@ -168,6 +170,73 @@ class Glow():
 		# Glow details can be found at : https://github.com/openai/glow/blob/master/model.py#L376
 		default_initializer = keras.initializers.RandomNormal(stddev=0.05)
 		width 				= 128 # width in glow is 512 but we lowered for speed; how much does this hurt performance? 
+		c 					= X.shape[-1]
+
+		input_shape = X.shape[1:]
+		d 			= np.prod(input_shape)
+
+		g = invtf.Generator(latent.Normal(d)) 
+
+		# Pre-process steps. 
+		g.add(keras.layers.InputLayer(input_shape=input_shape))
+		g.add(UniformDequantize	(input_shape=input_shape)) 
+		g.add(Normalize			(input_shape=input_shape)) 
+
+		# Build model using additive coupling layers. 
+		g.add(Squeeze())
+		c = 4*c
+
+		for i in range(0, 2): 
+
+			for j in range(1): 
+
+				g.add(ActNorm())
+				#g.add(Inv1x1Conv()) 
+
+				ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
+		
+				ac.add(Conv2D(width, kernel_size=(3,3), activation="relu", padding="SAME", 
+								kernel_initializer=default_initializer, bias_initializer="zeros")) 
+				ac.add(Conv2D(width, kernel_size=(1,1), activation="relu", padding="SAME", 
+								kernel_initializer=default_initializer, bias_initializer="zeros"))
+				ac.add(Conv2D(c, kernel_size=(3,3), 				   padding="SAME",
+								kernel_initializer="zeros", bias_initializer="ones"))  # they add 2 here and apply sigmoid. 
+				
+
+				g.add(ac) 
+			
+			#g.add(Squeeze())
+			#c = c * 4
+
+			#g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
+			#d = d//2
+
+		g.compile(optimizer=keras.optimizers.Adam(0.001))
+
+		g.predict(X[:2])
+
+		if verbose: 
+			for layer in g.layers: 
+				if isinstance(layer, AffineCoupling): layer.summary()
+
+			for layer in g.layers:
+				if isinstance(layer, VariationalDequantize): layer.summary()
+
+		return g
+
+
+
+class InvResNet(): 
+
+	def __init__(self): pass 
+
+
+class FlowPP():  # flow++ ;; - attention and logit coupling layers. 
+
+	def model(X, verbose=False):  
+
+		default_initializer = keras.initializers.RandomNormal(stddev=0.05)
+		width 				= 128 
 		c = 12
 
 
@@ -177,14 +246,14 @@ class Glow():
 		g = invtf.Generator(latent.Normal(d)) 
 
 		# Pre-process steps. 
-		g.add(UniformDequantize	(input_shape=input_shape)) 
+		#g.add(UniformDequantize	(input_shape=input_shape)) 
 
-		# Variational Dequantization. 
-		#il = keras.layers.InputLayer(input_shape=input_shape) # why do I have to add this? 
-		#g.add(il)
+		g.add(keras.layers.InputLayer(input_shape=input_shape))
 
-		"""vardeq = VariationalDequantize() # I Think this thing messes up the 'default add input layer'. 
-		vardeq.add(Squeeze()) 
+		# Build model 
+		g.add(Squeeze())
+
+		vardeq = VariationalDequantize() 
 
 		for j in range(2): 
 			ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
@@ -195,22 +264,20 @@ class Glow():
 			ac.add(Conv2D(c, kernel_size=(3,3), 				   padding="SAME",
 							kernel_initializer="zeros", bias_initializer="ones"))  # they add 2 here and apply sigmoid. 
 
-			g.add(ActNorm())
-			g.add(ac) 
+			vardeq.add(ActNorm())
+			#vardeq.add(ac)  # this loss starts being 8 or something crazy... 
 
-		vardeq.add(Reshape((32,32,3)))"""
+		g.add(vardeq) # print all loss constituents of this? 
 
-		g.add(Normalize		(input_shape=input_shape)) # normalize after variational dequantization? Add sigmoid? 
-
-		# Build model using additive coupling layers. 
-		g.add(Squeeze())
+		g.add(Normalize		(input_shape=input_shape)) 
 
 		for i in range(0, 2): 
 
 			for j in range(2): 
 
 				g.add(ActNorm())
-				g.add(Inv1x1Conv()) 
+				#g.add(Conv3DCirc())
+				#g.add(Inv1x1Conv()) 
 
 				ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
 		
@@ -223,7 +290,6 @@ class Glow():
 				
 
 				#g.add(Inv1x1Conv())
-				#g.add(Conv3DCirc())
 				g.add(ac) 
 			
 			#g.add(Squeeze())
@@ -245,14 +311,6 @@ class Glow():
 				if isinstance(layer, VariationalDequantize): layer.summary()
 
 		return g
-
-
-
-
-
-class InvResNet(): 
-
-	def __init__(self): pass 
 
 
 
