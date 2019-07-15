@@ -8,7 +8,7 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['TF_CPP_MIN_VLOG_LEVEL']='3'
 
-import tqdm
+from tqdm import tqdm
 import tensorflow as tf
 import invtf.grow_memory
 import tensorflow.keras as keras 
@@ -130,28 +130,28 @@ class Generator(keras.Sequential):
 
 
 
-	def predict(self, X, dequantize=True): 
+	# def predict(self, X, dequantize=True): 
 
-		Zs = [] 
+	# 	Zs = [] 
 
-		for layer in self.layers: 
+	# 	for layer in self.layers: 
 
-			# allow deactivating dequenatize 
-			# refactor to just look into name of layer and skip if it has dequantize in name or something like that. 
-			if not dequantize and isinstance(layer, UniformDequantize):     continue    
-			if not dequantize and isinstance(layer, VariationalDequantize): continue    
+	# 		# allow deactivating dequenatize 
+	# 		# refactor to just look into name of layer and skip if it has dequantize in name or something like that. 
+	# 		if not dequantize and isinstance(layer, UniformDequantize):     continue    
+	# 		if not dequantize and isinstance(layer, VariationalDequantize): continue    
 
-			# if isinstance(layer, MultiScale): 
-			# 	X, Z = layer.call(X)
-			# 	Zs.append(Z)
-			# 	continue
+	# 		# if isinstance(layer, MultiScale): 
+	# 		# 	X, Z = layer.call(X)
+	# 		# 	Zs.append(Z)
+	# 		# 	continue
 
-			X = layer.call(X)
+	# 		X = layer.call(X)
 
-		# TODO: make sure this does not break case without multiscale architecture.
-		# append Zs to X;; do by vectorize and then concat. 
+	# 	# TODO: make sure this does not break case without multiscale architecture.
+	# 	# append Zs to X;; do by vectorize and then concat. 
 
-		return X, Zs
+	# 	return X, Zs
 
 	def predict_inv(self, X, Z=None): 
 		n = X.shape[0]
@@ -220,17 +220,17 @@ class Generator(keras.Sequential):
 		last_layer = self.layers[-1]
 		#Computing gradients of loss function wrt the last acticvation
 		with tf.GradientTape() as tape:
-		    tape.watch(x)
-		    loss = self.loss(x)    #May have to change
+			tape.watch(x)
+			loss = self.loss(x)    #May have to change
 		grads_combined = tape.gradient(loss,[x])
 		dy = grads_combined[0]
 		y = x
 		#Computing gradients for each layer
 		for layer in self.layers[::-1]:     
-		    x = layer.call_inv(y)
-		    dy,grads = layer.compute_gradients(x,dy,layer.log_det)	#TODO implement scaling here...
-		    optimizer.apply_gradients(zip(grads,layer.trainable_variables))
-		    y = x 
+			x = layer.call_inv(y)
+			dy,grads = layer.compute_gradients(x,dy,layer.log_det)	#TODO implement scaling here...
+			optimizer.apply_gradients(zip(grads,layer.trainable_variables))
+			y = x 
 		return loss
 
 	def fit(self, X, batch_size=32,epochs=1,optimizer=tf.optimizers.Adam(),**kwargs): 
@@ -244,13 +244,14 @@ class Generator(keras.Sequential):
 			num_batches = X.shape[0] // batch_size
 			X = np.random.permutation(X)
 			#Minibatch gradient descent
-			for i in range(0,X.shape[0]-X.shape[0]%batch_size,batch_size):    
+			for i in tqdm(range(0,X.shape[0]-X.shape[0]%batch_size,batch_size)):    
+				print("Minibatch: ",i)
 			# grads,loss = model.compute_gradients(X[i:(i+batch_size)])
 				losses = []
 				loss = self.compute_and_apply_gradients(X[i:(i+batch_size)],optimizer)
 				losses.append(loss.numpy())
 				loss = np.mean(losses)  
-			print(loss)
+			print('Epoch: {}, loss: {}'.format(j,loss))
 			all_losses+=losses
 		return all_losses
 

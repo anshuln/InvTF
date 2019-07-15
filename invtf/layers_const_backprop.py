@@ -364,7 +364,7 @@ class Squeeze(LayerWithGrads):
 	def call_inv(self, X): 
 		return tf.reshape(X, [-1, self.w, self.h, self.c])
 		
-	def log_det(self): return 0. 
+	def log_det(self): return tf.zeros((1,)) 
 
 
 # TODO: for now assumes target is +-1, refactor to support any target. 
@@ -405,7 +405,7 @@ class MultiScale(keras.layers.Layer):
 		n, h, w, c = input_shape
 		return (n, h, w, c//2)
 
-	def log_det(self): return 0.
+	def log_det(self): return tf.zeros((1,))
 
 
 
@@ -488,7 +488,7 @@ class CircularConv(keras.layers.Layer):
 	def log_det(self):      pass
 
 
-class ActNorm(keras.layers.Layer): 
+class ActNorm(LayerWithGrads): 
 
 	"""
 		The exp parameter allows the scaling to be exp(s) \odot X. 
@@ -610,8 +610,10 @@ class AffineCoupling(LayerWithGrads): # Sequential):
 			x1 		= x1*s + t 
 
 		self.precompute_log_det(s, X)
-
+		# print("s",np.isnan(s),np.isnan(t))
 		X 		= self.strategy.combine(x0, x1)
+		print("s",np.isnan(s).all(),"t",np.isnan(t).all())
+		print("X0",np.isnan(x0).all(),"X1",np.isnan(x1).all())
 		return X
 
 	def call_inv(self, Z):	 
@@ -637,3 +639,33 @@ class AffineCoupling(LayerWithGrads): # Sequential):
 
 	def summary(self, line_length=None, positions=None, print_fn=None):
 		print_summary(self, line_length=line_length, positions=positions, print_fn=print_fn) # fixes stupid issue.
+
+	def compute_gradients(self,x,dy,regularizer=None):  
+		'''
+		Computes gradients for backward pass
+		Args:
+			x - tensor compatible with forward pass, input to the layer
+			dy - incoming gradient from backprop
+			regularizer - function, indicates dependence of loss on weights of layer
+		Returns
+			dy - gradients wrt input, to be backpropagated
+			grads - gradients wrt weights
+		'''
+		#TODO check if log_det of AffineCouplingLayer depends needs a regularizer. -- It does
+		with tf.GradientTape(persistent=False) as tape:	#Since log_det is computed within call
+			tape.watch(x)
+			y_ = self.call(x)   #Required to register the operation onto the gradient tape
+			reg = self._log_det
+		#TODO known issue, gradient goes to nan in some cases...
+		grads_combined = tape.gradient(y_,[x]+self.trainable_variables,output_gradients=dy)
+		grads_wrt_reg = tape.gradient(reg,self.trainable_variables)
+		dy,grads = grads_combined[0],grads_combined[1:]
+		grads = [a[0]+a[1] for a in zip(grads,grads_wrt_reg)]
+		del tape 	#Since tape was persistent, we need this
+
+
+		# if regularizer is not None:
+		# 	with tf.GradientTape() as tape:
+		# 		reg = -regularizer()
+		# 	grads_wrt_reg = tape.gradient(reg, self.trainable_variables)
+		return dy,grads
