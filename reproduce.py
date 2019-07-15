@@ -37,7 +37,11 @@ if __name__ == "__main__":
 		img_shape = X.shape[1:]
 
 	# TO BE IMPLEMENTED
-	if args.problem == "celeba":  raise NotImplementedError()
+	if args.problem == "celeba":  
+		X = celeba.load(5000).astype(np.float32)[:, ::4, ::4, :]
+		print(X.shape)
+		img_shape = X.shape[1:]
+	if args.problem == "imagenet32":  raise NotImplementedError()
 
 	# Get Model. 
 	if args.model == "nice":  	
@@ -46,6 +50,7 @@ if __name__ == "__main__":
 	if args.model == "realnvp": g = invtf.models.RealNVP.model(X)
 	if args.model == "glow": 	g = invtf.models.Glow.model(X)
 	if args.model == "flowpp":  g = invtf.models.FlowPP.model(X)
+	if args.model == "conv3d":  g = invtf.models.Conv3D.model(X)
 	if args.model == "iresnet": raise NotImplementedError()
 
 	# Print summary of model. 
@@ -63,10 +68,11 @@ if __name__ == "__main__":
 	folder_path = "reproduce/" + args.problem + "_" + args.model + "/"
 	if not os.path.exists(folder_path): os.makedirs(folder_path)
 
-	# Train model for 10 epochs. 
-	for i in range(10): 
+	# Train model for epochs iterations. 
+	epochs = 1000
+	for i in range(epochs): 
 
-		history = g.fit(X, batch_size=512, epochs=1)  
+		history = g.fit(X, batch_size=62, epochs=1)  
 
 		# Init histories to fit the history object. 
 		if histories == {}: 
@@ -82,7 +88,7 @@ if __name__ == "__main__":
 		ax_loss.set_ylabel("NLL")
 		ax_loss.set_xlabel("Epochs")
 		ax_loss.set_ylim([0, 10])
-		ax_loss.set_xlim([0, 10])
+		ax_loss.set_xlim([0, epochs])
 		ax_loss.set_title(args.problem + " " + args.model)
 		
 		# Plot fake/real/reconstructed image. 

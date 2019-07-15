@@ -65,7 +65,6 @@ class celeba():
 
 		if resolution != 256 or bits != 5: raise NotImplementedError()
 
-		if not os.path.exists("datasets/"): os.makedirs("datasets/")
 
 		from tensorflow.python.keras.utils.data_utils import get_file
 		import tarfile
@@ -78,6 +77,27 @@ class celeba():
 		print("Extracting tar into %s"%loc)
 		#tarf.extractall(loc) # make check so if it is already extracted don't do it again. 
 		print("Done extracting into %s"%loc)
+
+
+	# FROM https://github.com/openai/glow/blob/master/data_loaders/get_data.py#L10
+	# they prepared the records. 
+	def parse_tfrecord_tf(record, res, rnd_crop):
+		features = tf.io.parse_single_example(record, features={
+			'shape': tf.io.FixedLenFeature([3], tf.int64),
+			'data': tf.io.FixedLenFeature([], tf.string),
+			'label': tf.io.FixedLenFeature([1], tf.int64)})
+		# label is always 0 if uncondtional
+		# to get CelebA attr, add 'attr': tf.FixedLenFeature([40], tf.int64)
+		data, label, shape = features['data'], features['label'], features['shape']
+		label = tf.cast(tf.reshape(label, shape=[]), dtype=tf.int32)
+		img = tf.io.decode_raw(data, tf.uint8)
+		if rnd_crop:
+			# For LSUN Realnvp only - random crop
+			img = tf.reshape(img, shape)
+			img = tf.random_crop(img, [res, res, 3])
+			img = tf.reshape(img, [res, res, 3])
+		return img, label  # to get CelebA attr, also return attr
+
 	
 	def load(n=1000): 
 
@@ -86,13 +106,14 @@ class celeba():
 		
 		ds = tf.data.TFRecordDataset( files )
 
-		print(ds)
 
-		for raw_record in ds.take(1):
-			example = tf.train.Example()
-			print(raw_record.numpy())
-			#print(example)
+		data = np.zeros((n, 256,256,3), dtype=np.uint8)
+		for i, raw_record in enumerate(ds.take(n)): # refactor for loop away, slow. 
+			img, lbl = celeba.parse_tfrecord_tf(raw_record, 256, False)
+			img = tf.reshape(img, ((256,256,3)))
+			data[i] =  img
 
+		return data
 		
 
 	def generator(self): raise NotImplementedError()
@@ -232,6 +253,11 @@ class TwoSpirals():
 if __name__ == "__main__": 
 
 
-	#celeba.load()
-	imagenet(bits=8, resolution=32)
+	X  = celeba.load(10)
+	print(X.shape)
+
+	plt.imshow(X[3])
+	plt.show()
+
+	#imagenet(bits=8, resolution=32)
 	
