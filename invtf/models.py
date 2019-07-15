@@ -157,6 +157,76 @@ class RealNVP():
 
 		return g
 
+class Conv3D(): 
+
+	"""
+		Curiously they don't use residual networks in coupling layers as RealNVP does. 
+
+	""" 
+
+	def model(X, verbose=False):  
+
+		# Glow details can be found at : https://github.com/openai/glow/blob/master/model.py#L376
+		default_initializer = keras.initializers.RandomNormal(stddev=0.05)
+		width 				= 128 # width in glow is 512 but we lowered for speed; how much does this hurt performance? 
+		c 					= X.shape[-1]
+
+		input_shape = X.shape[1:]
+		d 			= np.prod(input_shape)
+
+		g = invtf.Generator(latent.Normal(d)) 
+
+		# Pre-process steps. 
+		g.add(keras.layers.InputLayer(input_shape=input_shape))
+		g.add(UniformDequantize	(input_shape=input_shape)) 
+		g.add(Normalize			(input_shape=input_shape)) 
+
+		# Build model using additive coupling layers. 
+		g.add(Squeeze())
+		c = 4*c
+
+		for i in range(0, 4): 
+
+			for j in range(4): 
+
+				g.add(ActNorm())
+				g.add(Inv1x1Conv()) 
+		
+				g.add(Conv3DCirc()) 
+
+				ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
+		
+				ac.add(Conv2D(width, kernel_size=(3,3), activation="relu", padding="SAME", 
+								kernel_initializer=default_initializer, bias_initializer="zeros")) 
+				ac.add(Conv2D(width, kernel_size=(1,1), activation="relu", padding="SAME", 
+								kernel_initializer=default_initializer, bias_initializer="zeros"))
+				ac.add(Conv2D(c, kernel_size=(3,3), 				   padding="SAME",
+								kernel_initializer="zeros", bias_initializer="ones"))  # they add 2 here and apply sigmoid. 
+				
+
+				g.add(ac) 
+			
+			#g.add(Squeeze())
+			#c = c * 4
+
+			#g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
+			#d = d//2
+
+		g.compile(optimizer=keras.optimizers.Adam(0.001))
+
+		g.predict(X[:2])
+
+		if verbose: 
+			for layer in g.layers: 
+				if isinstance(layer, AffineCoupling): layer.summary()
+
+			for layer in g.layers:
+				if isinstance(layer, VariationalDequantize): layer.summary()
+
+		return g
+
+
+
 
 class Glow(): 
 
