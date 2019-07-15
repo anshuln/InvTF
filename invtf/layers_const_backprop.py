@@ -612,8 +612,9 @@ class AffineCoupling(LayerWithGrads): # Sequential):
 		self.precompute_log_det(s, X)
 		# print("s",np.isnan(s),np.isnan(t))
 		X 		= self.strategy.combine(x0, x1)
-		print("s",np.isnan(s).all(),"t",np.isnan(t).all())
-		print("X0",np.isnan(x0).all(),"X1",np.isnan(x1).all())
+		#Diagnostic statements for testing NaN gradient
+		# print("s",np.isnan(s).all(),"t",np.isnan(t).all())
+		# print("X0",np.isnan(x0).all(),"X1",np.isnan(x1).all())
 		return X
 
 	def call_inv(self, Z):	 
@@ -652,7 +653,7 @@ class AffineCoupling(LayerWithGrads): # Sequential):
 			grads - gradients wrt weights
 		'''
 		#TODO check if log_det of AffineCouplingLayer depends needs a regularizer. -- It does
-		with tf.GradientTape(persistent=False) as tape:	#Since log_det is computed within call
+		with tf.GradientTape(persistent=True) as tape:	#Since log_det is computed within call
 			tape.watch(x)
 			y_ = self.call(x)   #Required to register the operation onto the gradient tape
 			reg = self._log_det

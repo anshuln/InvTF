@@ -233,26 +233,67 @@ class Generator(keras.Sequential):
 			y = x 
 		return loss
 
-	def fit(self, X, batch_size=32,epochs=1,optimizer=tf.optimizers.Adam(),**kwargs): 
+	def fit(self, X, batch_size=32,epochs=1,verbose=1,validation_split=0.0,
+    validation_data=None,
+    shuffle=True,
+	initial_epoch=0,
+    steps_per_epoch=None,
+    validation_steps=None,
+    validation_freq=1,
+	optimizer=tf.optimizers.Adam(),**kwargs): 
 		'''
-		Fits the model on dataset `X 
+		Fits the model on dataset `X (not a generator)
+		Note - for very big datasets, the function will give OOM, 
+			   consider using a generator
+		Args-
+		X - Data to be fitted. Maybe one of the following-
+				tf.EagerTensor
+				np.ndarray
+				#TODO add support for tf.data.Dataset and tf.keras.Sequence
+		batch_size - Number of elements in each minibatch
+		verbose - Logging level
+		validation_split - Amount of data to be used for validation in each epoch
+						   For tensors or arrays, data is extracted from initial part of dataset.
+		shuffle - Should training data be shuffled before mini-batches are extracted
+		steps_per_epoch - Number of training steps per epoch. Used mainly for generators.
+	    validation_steps - Number of validation steps per epoch. Used mainly for generators.
+
 		'''
-		# TODO add all other args from tf.keras.Model.fit 
+		# TODO add all callbacks from tf.keras.Model.fit 
 		# TODO return a history object instead of array of losses
 		all_losses = []
-		for j in range(epochs):
-			num_batches = X.shape[0] // batch_size
-			X = np.random.permutation(X)
+		if validation_split > 0 and validation_data is None:
+			validation_data = X[:int(len(X)*validation_split)]
+			X = X[int(len(X)*validation_split):]
+
+		epoch_gen = range(initial_epoch,epochs)
+		if verbose == 1:
+			epoch_gen = tqdm(epoch_gen)
+		batch_size = min(batch_size,X.shape[0])	#Sanity check
+		num_batches = X.shape[0] // batch_size
+		if steps_per_epoch == None:
+			steps_per_epoch = num_batches
+
+		for j in epoch_gen:
+			if shuffle == True:
+				X = np.random.permutation(X)	#Works for np.ndarray and tf.EagerTensor, however, turns everything to numpy
 			#Minibatch gradient descent
-			for i in tqdm(range(0,X.shape[0]-X.shape[0]%batch_size,batch_size)):    
-				print("Minibatch: ",i)
-			# grads,loss = model.compute_gradients(X[i:(i+batch_size)])
+			range_gen = range(steps_per_epoch)
+			if verbose == 2:
+				range_gen = tqdm(range_gen)
+			for i in range_gen:    
 				losses = []
-				loss = self.compute_and_apply_gradients(X[i:(i+batch_size)],optimizer)
+				loss = self.compute_and_apply_gradients(X[i*batch_size:(i+1)*(batch_size)],optimizer)
 				losses.append(loss.numpy())
-				loss = np.mean(losses)  
-			print('Epoch: {}, loss: {}'.format(j,loss))
+			loss = np.mean(losses)  
 			all_losses+=losses
+			to_print = 'Epoch: {}/{}, training_loss: {}'.format(j,epochs,loss)
+			if validation_data is not None:
+				val_loss = self.loss(validation_data)
+				to_print += ', val_loss: {}'.format(val_loss.numpy())	#TODO return val_loss somehow
+			if verbose == 2:
+				print(to_print)
+
 		return all_losses
 
 	def fit_generator(self, generator,batches_per_epoch,epochs=1,optimizer=tf.optimizers.Adam(),**kwargs): 
@@ -267,7 +308,7 @@ class Generator(keras.Sequential):
 				loss = self.compute_and_apply_gradients(next(X),optimizer)
 				losses.append(loss.numpy())
 			loss = np.mean(losses)  
-			print(loss)
+			print('Epoch: {}, loss: {}'.format(j,loss))
 			all_losses+=losses
 		return all_losses
 
