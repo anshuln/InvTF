@@ -55,9 +55,12 @@ if __name__ == "__main__":
 
 	# Print summary of model. 
 	g.summary()
+	g.check_init(X[:1])
 
 	# Initialize plots (TODO: window position might break from Ubuntu -> win/mac)
 	fig, ax = plt.subplots(1, 3)
+	# fig_, ax_ = plt.subplots(5, 5) # plot with lower variance, a bit like glow.  # TODO: 
+
 	for i in range(3): ax[i].axis("off")
 	fig.canvas.manager.window.wm_geometry("+0+0")
 	fig_loss, ax_loss = plt.subplots()
@@ -67,6 +70,7 @@ if __name__ == "__main__":
 	histories = {}
 	folder_path = "reproduce/" + args.problem + "_" + args.model + "/"
 	if not os.path.exists(folder_path): os.makedirs(folder_path)
+
 
 	# Train model for epochs iterations. 
 	epochs = 1000000
