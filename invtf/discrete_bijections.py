@@ -19,8 +19,6 @@ class NaturalBijection(keras.layers.Layer):
 	def call(self, X): 
 		## split on even and odd channels. 
 		## assumes even number of channels. 
-
-
 		X = tf.dtypes.cast(X, dtype=tf.int32) # if not it overflows. 
 
 		c = X.shape[-1] # refactor to use SplitStrategy 

@@ -14,6 +14,8 @@ class ReduceNumBits(keras.layers.Layer):
 
 		This also means subsequent normalization needs to divide by less. 
 		In this sense likelihood is incomparable between different number of bits. 
+
+		It seems to work, but it is a bit instable. 
 	"""
 	def __init__(self, bits=5):  # assumes input has 8 bits. 
 		self.bits = 5
@@ -23,7 +25,9 @@ class ReduceNumBits(keras.layers.Layer):
 		X = tf.dtypes.cast(X, dtype=np.float32)
 		return X // ( 2**(8-self.bits) )
 
-	def call_inv(self, Z): return Z
+	def call_inv(self, Z): 
+		# THIS PART IS NOT INVERTIBLE!!
+		return Z * (2**(8-self.bits))
 
 	def log_det(self): return 0. 
 		
@@ -490,17 +494,23 @@ class UnSqueeze(keras.layers.Layer):
 
 
 
-
-
-# TODO: for now assumes target is +-1, refactor to support any target. 
-# Refactor 127.5 
 class Normalize(keras.layers.Layer):  # normalizes data after dequantization. 
+	"""
 
-	def __init__(self, target=[-1,+1], scale=127.5, input_shape=[]): 
-		super(Normalize, self).__init__(input_shape=input_shape)
+	"""
+
+	def __init__(self, bits=None, target=[-1,+1], scale=127.5, input_shape=[]):
+		super(Normalize, self).__init__()
 		self.target = target
-		self.d 		= np.prod(input_shape)
-		self.scale  = 1/127.5
+
+		if bits is None: 	self.scale = 1 / 127.5 
+		else: 				self.scale = float(1 / ( 2**(bits -1)))
+
+	def build(self, input_shape): 
+		self.d = tf.dtypes.cast(tf.math.reduce_prod(input_shape[1:]), dtype=tf.float32)
+		print(self.d)
+		super(Normalize, self).build(input_shape=input_shape)
+		self.built = True
 
 	def call(self, X):  
 		X 			= X * self.scale  - 1
