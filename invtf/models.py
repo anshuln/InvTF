@@ -178,16 +178,23 @@ class Conv3D():
 
 		# Pre-process steps. 
 		g.add(keras.layers.InputLayer(input_shape=input_shape))
-		g.add(UniformDequantize	(input_shape=input_shape)) 
-		g.add(Normalize			(input_shape=input_shape)) 
 
-		# Build model using additive coupling layers. 
+
+		# seems to work, but it is a bit unstable. 
+		g.add(ReduceNumBits(bits=3))
 		g.add(Squeeze())
 		c = 4*c
+		g.add(invtf.discrete_bijections.NaturalBijection()) 
+		c = c//2
 
-		for i in range(0, 4): 
+		g.add(UniformDequantize	()) 
+		g.add(Normalize			())  
 
-			for j in range(4): 
+		# Build model using additive coupling layers. 
+
+		for i in range(0, 2): 
+
+			for j in range(2): 
 
 				g.add(ActNorm())
 				g.add(Inv1x1Conv()) 
@@ -214,7 +221,7 @@ class Conv3D():
 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 
-		g.predict(X[:2])
+		g.init(X[:1000])
 
 		if verbose: 
 			for layer in g.layers: 
@@ -224,8 +231,6 @@ class Conv3D():
 				if isinstance(layer, VariationalDequantize): layer.summary()
 
 		return g
-
-
 
 
 class Glow(): 
@@ -296,9 +301,18 @@ class Glow():
 
 
 
-class InvResNet(): 
+class ConvInvResNet(): 
 
-	def __init__(self): pass 
+	
+	def model(X):
+
+		# instead of 3D use ND and see how different dimension change performance. 
+		# also, with resnet block, have maybe 
+		# 		y = sum_j conv_(jD) conv(x)
+
+		for _ in range(10000): # use O(1) memory trick. 
+			g.add(ResidualConv3DCirc()) # can only contract 
+			g.add(Conv3DCirc()) # is allowed to expand. 
 
 
 class FlowPP():  # flow++ ;; - attention and logit coupling layers. 
