@@ -394,7 +394,7 @@ class Inv1x1ConvPLU(keras.layers.Layer):
 		add directly to AdditiveCoupling we run into issues with miss matching dimensions. 
 	
 """
-class AdditiveCoupling(keras.Sequential): 
+class AdditiveCoupling(keras.Sequential):  # refactor to be layer and to support both (None, 28**2) and (None, 28, 28, 1). 
 
 	unique_id = 1
 
@@ -457,6 +457,49 @@ class AdditiveCoupling(keras.Sequential):
 	def log_det(self): 		return 0. 
 
 	def compute_output_shape(self, input_shape): return input_shape
+
+
+
+
+class AdditiveCouplingReLU(keras.layers.Layer): 
+
+	unique_id = 1
+
+	def __init__(self, part=0, sign=+1, strategy=SplitChannelsStrategy()): # strategy: alternate / split  ;; alternate does odd/even, split has upper/lower. 
+		super(AdditiveCouplingReLU, self).__init__(name="add_coupling_relu_%i"%AdditiveCouplingReLU.unique_id)
+		AdditiveCouplingReLU.unique_id += 1
+		self.part 		= part 
+		self.strategy 	= strategy
+		self.relu		= keras.layers.ReLU()
+		self.sign		= sign
+
+	def call(self, X): 		
+		shape 	= tf.shape(X)
+
+		x0, x1 = self.strategy.split(X)
+
+		if self.part == 0: x0 		= x0 + self.relu(x1) * self.sign
+		if self.part == 1: x1 		= x1 + self.relu(x0) * self.sign
+
+		X = self.strategy.combine(x0, x1)
+
+		return X
+
+	def call_inv(self, Z):	 
+		z0, z1 = self.strategy.split(Z)
+		
+		if self.part == 0: z0 		= z0 - self.relu(z1) * self.sign
+		if self.part == 1: z1 		= z1 - self.relu(z0) * self.sign
+
+		Z = self.strategy.combine(z0, z1)
+
+		return Z
+
+
+	def log_det(self): 		return 0. 
+
+	def compute_output_shape(self, input_shape): return input_shape
+
 
 
 
@@ -545,47 +588,68 @@ class MultiScale(keras.layers.Layer):
 
 
 
+"""
+	There's an issue with scaling, which intuitively makes step-size VERY small. 
+"""
 class Conv3DCirc(keras.layers.Layer): 
 
 	def __init__(self,trainable=True): 
 		self.built = False
 		super(Conv3DCirc, self).__init__()
 
-	def call(self, X): 
-		if self.built == False:    #For some reason the layer is not being built without this line
-			self.build(X.get_shape().as_list())
+	def build(self, input_shape): 
+		self.scale = np.sqrt(np.prod(input_shape[1:])) 
 
-		#The next 2 lines are a redundant computation necessary because w needs to be an EagerTensor for the output to be eagerly executed, and that was not the case earlier
-		#EagerTensor is required for backprop to work...
-		#Further, updating w_real will automatically trigger an update on self.w, so it is better to not store w at all
-		#TODO - figure out a way to avoid, or open an issue with tf...
-		self.w  = tf.cast(self.w_real, dtype=tf.complex64)
-		self.w  = tf.signal.fft3d(self.w / self.scale)
+		def identitiy_initializer_real(shape, dtype=None):
+			return (tf.math.real(tf.signal.ifft3d(tf.ones(shape, dtype=tf.complex64)*self.scale))) 
+
+		self.w_real     = self.add_variable(name="w_real",shape=input_shape[1:], initializer=identitiy_initializer_real, trainable=True)
+
+		super(Conv3DCirc, self).build(input_shape)
+		self.built = True
+
+
+	def call(self, X): 
+		w  = tf.cast(self.w_real, dtype=tf.complex64)
+		w  = tf.signal.fft3d(w / self.scale)
 
 		X = tf.cast(X, dtype=tf.complex64)
 		X = tf.signal.fft3d(X / self.scale) 
-		X = X * self.w
+		X = X * w
 		X = tf.signal.ifft3d(X * self.scale ) 
 		X = tf.math.real(X)
 		return X
 
-
-
 	def call_inv(self, X): 
 		X = tf.cast(X, dtype=tf.complex64)
-		X = tf.signal.fft3d(X * self.scale ) # self.scale correctly 
-		#The next 2 lines are a redundant computation necessary because w needs to be an EagerTensor for the output to be eagerly executed, and that was not the case earlier
-		self.w  = tf.cast(self.w_real, dtype=tf.complex64)
-		self.w  = tf.signal.fft3d(self.w / self.scale)
+		X = tf.signal.fft3d(X * self.scale ) 
 
-		X = X / self.w
+		w  = tf.cast(self.w_real, dtype=tf.complex64)
+		w  = tf.signal.fft3d(w / self.scale)
+
+		X = X / w
 
 		X = tf.signal.ifft3d(X / self.scale)   
 		X = tf.math.real(X)
 		return X
 
-	def log_det(self):  return tf.math.reduce_sum(tf.math.log(tf.math.abs(tf.signal.fft3d(tf.cast(self.w_real/self.scale,dtype=tf.complex64)))))    #Need to return EagerTensor
+	def log_det(self):  return tf.math.reduce_sum( tf.math.log( tf.math.abs( tf.signal.fft3d( tf.cast( self.w_real / self.scale, dtype=tf.complex64)))))    
 
+	def compute_output_shape(self, input_shape): return tf.TensorShape(input_shape[1:])
+
+
+class ResidualConv3DCirc(Conv3DCirc): 
+
+	# TODO: See if there is any difference in this compared to having
+	# a having +1 on the diagonal in Fourier space. What is most numerically
+	# stable? 
+	def call(self, X): return X + super(ResidualConv3DCirc, self).call(X)  
+
+	# use fixed point iteration algorithm from iResNet
+	def call_inv(self, X):  raise NotImplementedError()
+
+	# use the derivations in iResNet to fix this. 
+	def log_det(self):   	raise NotImplementedError() # return tf.math.reduce_sum(tf.math.log(tf.math.abs(tf.signal.fft3d(tf.cast(self.w_real/self.scale,dtype=tf.complex64)))))    #Need to return EagerTensor
 
 	def build(self, input_shape): 
 		self.scale = np.sqrt(np.prod(input_shape[1:])) # np.sqrt(np.prod([a.value for a in input_shape[1:]]))
@@ -595,30 +659,14 @@ class Conv3DCirc(keras.layers.Layer):
 		def identitiy_initializer_real(shape, dtype=None):
 			return (tf.math.real(tf.signal.ifft3d(tf.ones(shape, dtype=tf.complex64)*self.scale))) 
 
-		self.w_real     = self.add_variable(name="w_real",shape=input_shape[1:], initializer=identitiy_initializer_real, trainable=True)
+		class SpectralNormalization(keras.constraints.Constraint):
+			def __call__(self, w): return w / tf.math.reduce_max(w) # TODO: This needs to be done in fourier space. 
+
+		self.w_real     = self.add_variable(name="w_real",shape=input_shape[1:], initializer=identitiy_initializer_real, trainable=True, constraint=SpectralNormalization())
 		# self.w    = tf.cast(self.w_real, dtype=tf.complex64)  #hacky way to initialize real w and actual w, since tf does weird stuff if 'variable' is modified
 		# self.w    = tf.signal.fft3d(self.w / self.scale)
 		super(Conv3DCirc, self).build(input_shape)
 		self.built = True
-		
-
-	def compute_output_shape(self, input_shape): 
-		return tf.TensorShape(input_shape[1:])
-
-
-class ResidualConv3DCirc(Conv3DCirc): 
-
-	def call(self, X): 
-
-		return X + super(ResidualConv3DCirc, self).call(X)
-
-	# use fixed point iteration algorithm from iResNet, and add regularizer / clipper so
-	# largest eigenvalue is no more than 1.
-	def call_inv(self, X):  raise NotImplementedError()
-
-	# use the derivations in iResNet to fix this. 
-	def log_det(self, X): raise NotImplementedError()
-
 
 
 class Reshape(keras.layers.Layer):
@@ -633,6 +681,7 @@ class Reshape(keras.layers.Layer):
 	def log_det(self): return .0
 
 	def call_inv(self, X): return tf.reshape(X, self.input_shape)
+
 
 
 
