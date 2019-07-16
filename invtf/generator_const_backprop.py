@@ -229,7 +229,7 @@ class Generator(keras.Sequential):
 		for layer in self.layers[::-1]:     
 			x = layer.call_inv(y)
 			dy,grads = layer.compute_gradients(x,dy,layer.log_det)	#TODO implement scaling here...
-			optimizer.apply_gradients(zip(grads,layer.trainable_variables))
+			optimizer.apply_gradients(zip(gradientsrads,layer.trainable_variables))
 			y = x 
 		return loss
 

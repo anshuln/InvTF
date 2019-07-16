@@ -27,7 +27,7 @@ class LayerWithGrads(keras.layers.Layer):
 	def call_inv(self,X):
 		raise NotImplementedError
 
-	def compute_gradients(self,x,dy,regularizer=None):  
+	def compute_gradients(self,x,dy,regularizer=None,scaling=1):  
 		'''
 		Computes gradients for backward pass
 		Args:
@@ -47,7 +47,7 @@ class LayerWithGrads(keras.layers.Layer):
 
 		if regularizer is not None:
 			with tf.GradientTape() as tape:
-				reg = -regularizer()
+				reg = -regularizer()/scaling
 			grads_wrt_reg = tape.gradient(reg, self.trainable_variables)
 			grads = [a[0]+a[1] for a in zip(grads,grads_wrt_reg)]
 		return dy,grads
@@ -148,12 +148,12 @@ class Inv1x1Conv(keras.layers.Layer):
 
 		# random orthogonal matrix 
 		# check if tf.linalg.qr and tf.linalg.lu are more stable than scipy. 
-		self.kernel 	= self.add_weight(initializer=keras.initializers.Orthogonal(), shape=(c, c), name="inv_1x1_conv_P")
+		self.kernel     = self.add_weight(initializer=keras.initializers.Orthogonal(), shape=(c, c), name="inv_1x1_conv_P")
 	
 		super(Inv1x1Conv, self).build(input_shape)
 		self.built = True
 
-	def call(self, X): 	
+	def call(self, X):  
 		_W = tf.reshape(self.kernel, (1,1, self.c, self.c))
 		return tf.nn.conv2d(X, _W, [1,1,1,1], "SAME")
 
@@ -163,7 +163,7 @@ class Inv1x1Conv(keras.layers.Layer):
 		_W = tf.reshape(self.kernel_inv, (1,1, self.c, self.c))
 		return tf.nn.conv2d(Z, _W, [1,1,1,1], "SAME")
 
-	def log_det(self): 		  # det computations are way too instable here.. 
+	def log_det(self):        # det computations are way too instable here.. 
 		return self.h * self.w * tf.math.log(tf.abs( tf.linalg.det(self.kernel) ))   
 
 	def compute_output_shape(self, input_shape): return input_shape
@@ -196,7 +196,7 @@ class Inv1x1ConvPLU(LayerWithGrads):
 		# random orthogonal matrix 
 		# check if tf.linalg.qr and tf.linalg.lu are more stable than scipy. 
 		import scipy
-		w 		= scipy.linalg.qr(np.random.normal(0, 1, (self.c, self.c)))[0].astype(np.float32)
+		w       = scipy.linalg.qr(np.random.normal(0, 1, (self.c, self.c)))[0].astype(np.float32)
 		P, L, U = scipy.linalg.lu(w)
 
 		def init_P(self, shape=None, dtype=None): return P
@@ -212,7 +212,7 @@ class Inv1x1ConvPLU(LayerWithGrads):
 
 		L_mask = tf.constant(np.triu(np.ones((c,c)), k=+1), dtype=tf.float32)
 		P_mask = tf.constant(np.tril(np.ones((c,c)), k=-1), dtype=tf.float32)
-		I 	   = tf.constant(np.identity(c), dtype=tf.float32)
+		I      = tf.constant(np.identity(c), dtype=tf.float32)
 
 		self.P = self.P * P_mask + I
 		self.L = self.L * L_mask + I
@@ -223,15 +223,15 @@ class Inv1x1ConvPLU(LayerWithGrads):
 		self.L_inv = tf.linalg.inv(tf.dtypes.cast(L, dtype=tf.float64))
 		self.U_inv = tf.linalg.inv(tf.dtypes.cast(U, dtype=tf.float64))
 
-		self.kernel_inv 	= tf.linalg.inv(self.kernel) # tf.dtypes.cast(self.U_inv @ self.L_inv @ self.P_inv, dtype=tf.float32)
+		self.kernel_inv     = tf.linalg.inv(self.kernel) # tf.dtypes.cast(self.U_inv @ self.L_inv @ self.P_inv, dtype=tf.float32)
 
-		#self.I_ 			= self.kernel @ tf.linalg.inv(self.kernel)
-		#self.I 				= self.kernel @ self.kernel_inv
+		#self.I_            = self.kernel @ tf.linalg.inv(self.kernel)
+		#self.I                 = self.kernel @ self.kernel_inv
 	
 		super(Inv1x1Conv, self).build(input_shape)
 		self.built = True
 
-	def call(self, X): 	
+	def call(self, X):  
 		_W = tf.reshape(self.kernel, (1,1, self.c, self.c))
 		return tf.nn.conv2d(X, _W, [1,1,1,1], "SAME")
 
@@ -239,7 +239,7 @@ class Inv1x1ConvPLU(LayerWithGrads):
 		_W = tf.reshape(self.kernel_inv, (1,1, self.c, self.c))
 		return tf.nn.conv2d(Z, _W, [1,1,1,1], "SAME")
 
-	def log_det(self): 		  # det computations are way too instable here.. 
+	def log_det(self):        # det computations are way too instable here.. 
 		return self.h * self.w * tf.math.log(tf.abs( tf.linalg.det(self.kernel) ))   # Looks fine? 
 
 	def compute_output_shape(self, input_shape): return input_shape
@@ -320,7 +320,7 @@ class AdditiveCoupling(keras.Sequential):
 
 	def compute_output_shape(self, input_shape): return input_shape
 
-	def compute_gradients(self,x,dy,regularizer=None):  
+	def compute_gradients(self,x,dy,regularizer=None,scaling=1):  
 		'''
 		Computes gradients for backward pass
 		Since the coupling layers do not inherit from `LayerWithGrads`, this 
@@ -524,16 +524,16 @@ class ActNorm(LayerWithGrads):
 		self.h = h
 		self.w = w
 
-		self.s = self.add_weight(shape=c, 	initializer='ones', name="affine_scale") 
-		self.b = self.add_weight(shape=c, 	initializer='zero', name="affine_bias")
+		self.s = self.add_weight(shape=c,   initializer='ones', name="affine_scale") 
+		self.b = self.add_weight(shape=c,   initializer='zero', name="affine_bias")
 
 		super(ActNorm, self).build(input_shape)
 		self.built = True
 
-	def call(self, X): 		return X * self.s + self.b
+	def call(self, X):      return X * self.s + self.b
 	def call_inv(self, Z):  return (Z - self.b) / self.s
 
-	def log_det(self): 		return self.h * self.w * tf.reduce_sum(tf.math.log(tf.abs(self.s)))
+	def log_det(self):      return self.h * self.w * tf.reduce_sum(tf.math.log(tf.abs(self.s)))
 
 	def compute_output_shape(self, input_shape): 
 		self.output_shape = input_shape
@@ -554,7 +554,7 @@ class ActNorm(LayerWithGrads):
 	For now assumes the use of convolutions 
 
 """
-class AffineCoupling(LayerWithGrads): # Sequential):  	
+class AffineCoupling(LayerWithGrads): # Sequential):    
 
 	def add(self, layer): self.layers.append(layer)
 
@@ -563,8 +563,8 @@ class AffineCoupling(LayerWithGrads): # Sequential):
 	def __init__(self, part=0, strategy=SplitChannelsStrategy()): 
 		super(AffineCoupling, self).__init__(name="aff_coupling_%i"%AffineCoupling.unique_id)
 		AffineCoupling.unique_id += 1
-		self.part 		= part 
-		self.strategy 	= strategy
+		self.part       = part 
+		self.strategy   = strategy
 		self.layers = []
 		self._is_graph_network = False
 
@@ -616,51 +616,51 @@ class AffineCoupling(LayerWithGrads): # Sequential):
 
 		return s, t
 
-	def call(self, X): 		
+	def call(self, X):      
 
 		x0, x1 = self.strategy.split(X)
 
 		if self.part == 0: 
-			s, t 	= self.call_(x1)
-			x0 		= x0*s + t # glow changed order of this? i.e. translate then scale. 
+			s, t    = self.call_(x1)
+			x0      = x0*s + t # glow changed order of this? i.e. translate then scale. 
 
 		if self.part == 1: 
-			s, t 	= self.call_(x0)
-			x1 		= x1*s + t 
+			s, t    = self.call_(x0)
+			x1      = x1*s + t 
 
 		self.precompute_log_det(s, X)
 		# print("s",np.isnan(s),np.isnan(t))
-		X 		= self.strategy.combine(x0, x1)
+		X       = self.strategy.combine(x0, x1)
 		#Diagnostic statements for testing NaN gradient
 		# print("s",np.isnan(s).all(),"t",np.isnan(t).all())
 		# print("X0",np.isnan(x0).all(),"X1",np.isnan(x1).all())
 		return X
 
-	def call_inv(self, Z):	 
+	def call_inv(self, Z):   
 		z0, z1 = self.strategy.split(Z)
 		
 		if self.part == 0: 
-			s, t 	= self.call_(z1)
-			z0 		= (z0 - t)/s
+			s, t    = self.call_(z1)
+			z0      = (z0 - t)/s
 		if self.part == 1: 
-			s, t 	= self.call_(z0)
-			z1 		= (z1 - t)/s
+			s, t    = self.call_(z0)
+			z1      = (z1 - t)/s
 
-		Z 		= self.strategy.combine(z0, z1)
+		Z       = self.strategy.combine(z0, z1)
 		return Z
 
 	def precompute_log_det(self, s, X): 
-		n 		= tf.dtypes.cast(tf.shape(X)[0], tf.float32)
+		n       = tf.dtypes.cast(tf.shape(X)[0], tf.float32)
 		self._log_det = tf.reduce_sum(tf.math.log(tf.abs(s))) / n
 
-	def log_det(self): 		  return self._log_det
+	def log_det(self):        return self._log_det
 
 	def compute_output_shape(self, input_shape): return input_shape
 
 	def summary(self, line_length=None, positions=None, print_fn=None):
 		print_summary(self, line_length=line_length, positions=positions, print_fn=print_fn) # fixes stupid issue.
 
-	def compute_gradients(self,x,dy,regularizer=None):  
+	def compute_gradients(self,x,dy,regularizer=None,scaling=1):  
 		'''
 		Computes gradients for backward pass
 		Args:
@@ -672,20 +672,20 @@ class AffineCoupling(LayerWithGrads): # Sequential):
 			grads - gradients wrt weights
 		'''
 		#TODO check if log_det of AffineCouplingLayer depends needs a regularizer. -- It does
-		with tf.GradientTape(persistent=True) as tape:	#Since log_det is computed within call
+		with tf.GradientTape(persistent=True) as tape:  #Since log_det is computed within call
 			tape.watch(x)
 			y_ = self.call(x)   #Required to register the operation onto the gradient tape
-			reg = self._log_det
-		#TODO known issue, gradient goes to nan in some cases...
+			reg = -self._log_det/scaling
 		grads_combined = tape.gradient(y_,[x]+self.trainable_variables,output_gradients=dy)
 		grads_wrt_reg = tape.gradient(reg,self.trainable_variables)
 		dy,grads = grads_combined[0],grads_combined[1:]
 		grads = [a[0]+a[1] for a in zip(grads,grads_wrt_reg)]
-		del tape 	#Since tape was persistent, we need this
+		del tape    #Since tape was persistent, we need this
 
 
 		# if regularizer is not None:
-		# 	with tf.GradientTape() as tape:
-		# 		reg = -regularizer()
-		# 	grads_wrt_reg = tape.gradient(reg, self.trainable_variables)
+		#   with tf.GradientTape() as tape:
+		#       reg = -regularizer()
+		#   grads_wrt_reg = tape.gradient(reg, self.trainable_variables)
+		#TODO fix bug of incorrect dy
 		return dy,grads
