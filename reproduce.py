@@ -29,7 +29,7 @@ if __name__ == "__main__":
 	if args.problem in ["fmnist", "fashion_mnist","fashionmnist", "fasion-mnist"]: 
 		X = fmnist().images()
 		img_shape = X.shape[1:-1]
-	if args.problem == "cifar10":  
+	if args.problem in ["cifar10", "cifar"]:  
 		X = cifar10().images()
 		img_shape = X.shape[1:]
 	if args.problem == "cifar100":  
@@ -37,8 +37,8 @@ if __name__ == "__main__":
 		img_shape = X.shape[1:]
 
 	# TO BE IMPLEMENTED
-	if args.problem == "celeba":  
-		X = celeba.load(5000).astype(np.float32)[:, ::4, ::4, :]
+	if args.problem in ["celeba", "celeb", "faces"]:  
+		X = celeba.load(5000).astype(np.float32)[:, ::8, ::8, :]
 		print(X.shape)
 		img_shape = X.shape[1:]
 	if args.problem == "imagenet32":  raise NotImplementedError()
@@ -48,7 +48,7 @@ if __name__ == "__main__":
 		X = X.reshape((X.shape[0], -1))
 		g = invtf.models.NICE.model(X)
 	if args.model == "realnvp": g = invtf.models.RealNVP.model(X)
-	if args.model == "glow": 	g = invtf.models.Glow.model(X)
+	if args.model == "glow":    g = invtf.models.Glow.model(X)
 	if args.model == "flowpp":  g = invtf.models.FlowPP.model(X)
 	if args.model == "conv3d":  g = invtf.models.Conv3D.model(X)
 	if args.model == "iresnet": raise NotImplementedError()
@@ -69,10 +69,10 @@ if __name__ == "__main__":
 	if not os.path.exists(folder_path): os.makedirs(folder_path)
 
 	# Train model for epochs iterations. 
-	epochs = 1000
+	epochs = 1000000
 	for i in range(epochs): 
 
-		history = g.fit(X, batch_size=62, epochs=1)  
+		history = g.fit(X, batch_size=128, epochs=1)	
 
 		# Init histories to fit the history object. 
 		if histories == {}: 
