@@ -181,11 +181,11 @@ class Conv3D():
 
 
 		# seems to work, but it is a bit unstable. 
-		g.add(ReduceNumBits(bits=3))
+		#g.add(ReduceNumBits(bits=3))
 		g.add(Squeeze())
 		c = 4*c
-		g.add(invtf.discrete_bijections.NaturalBijection()) 
-		c = c//2
+		#g.add(invtf.discrete_bijections.NaturalBijection()) 
+		#c = c//2
 
 		g.add(UniformDequantize	()) 
 		g.add(Normalize			())  
@@ -194,30 +194,27 @@ class Conv3D():
 
 		for i in range(0, 2): 
 
-			for j in range(2): 
+			for j in range(4): 
 
-				g.add(ActNorm())
-				g.add(Inv1x1Conv()) 
-		
+				#g.add(ActNorm())
+				#g.add(Inv1x1Conv()) 
+				g.add(Conv3DCirc())  # change to residual.
+				g.add(AdditiveCouplingReLU(part=j%2, sign=+1, strategy=SplitChannelsStrategy()))
+
 				g.add(Conv3DCirc()) 
+				g.add(AdditiveCouplingReLU(part=j%2, sign=-1, strategy=SplitChannelsStrategy()))
 
-				ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
-		
-				ac.add(Conv2D(width, kernel_size=(3,3), activation="relu", padding="SAME", 
-								kernel_initializer=default_initializer, bias_initializer="zeros")) 
-				ac.add(Conv2D(width, kernel_size=(1,1), activation="relu", padding="SAME", 
-								kernel_initializer=default_initializer, bias_initializer="zeros"))
-				ac.add(Conv2D(c, kernel_size=(3,3), 				   padding="SAME",
-								kernel_initializer="zeros", bias_initializer="ones"))  # they add 2 here and apply sigmoid. 
-				
-
-				g.add(ac) 
+				#ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
+				#ac.add( keras.layers.ReLU() ) # needs to be larger; maybe use additive here? 
+				#g.add(ac) 
 			
 			#g.add(Squeeze())
 			#c = c * 4
 
 			#g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
 			#d = d//2
+
+		g.add(Conv3DCirc()) 
 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 
