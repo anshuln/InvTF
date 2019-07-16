@@ -9,6 +9,7 @@ import tensorflow as tf
 import invtf.coupling_strategy
 import invtf.dataset
 import invtf.dequantize
+import invtf.discrete_bijections
 import invtf.grow_memory
 import invtf.latent
 import invtf.layers
@@ -136,7 +137,6 @@ class Generator(keras.Sequential):
 	def loss_log_var_dequant(self, y_true, y_pred): 
 		vardeqloss = 0
 		for layer in self.layers: 
-			print(layer, layer.input_shape)
 			if isinstance(layer, invtf.dequantize.VariationalDequantize): 
 				vardeqloss = layer.loss()
 				break
@@ -340,5 +340,21 @@ class Generator(keras.Sequential):
 
 		plt.pause(.1)
 
+
+	def init(self, X):  # predict and compute normalization. 
+		self.predict(X)
+
+		for layer in self.layers: 
+			if isinstance(layer, Normalize): break
+			X = layer.call(X)
+		
+		max = np.max(X.numpy()) 
+		layer.scale = 1 / (max / 2)
+		print(layer.scale)
+		X = layer.call(X).numpy()
+		print(X.min(), X.max())
+
+		# Also compute values of actnorm layers. 
+		
 
 
