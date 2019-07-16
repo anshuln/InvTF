@@ -2,6 +2,8 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['TF_CPP_MIN_VLOG_LEVEL']='3'
 
+__version__ = "0.0.1"
+
 import tensorflow as tf
 
 import invtf.coupling_strategy
@@ -22,8 +24,10 @@ import numpy as np
 import invtf.latent
 import matplotlib.pyplot as plt 
 
-print("Version: \t", tf.__version__)
+print("TF Version: \t", tf.__version__)
 print("Eager: \t\t", tf.executing_eagerly())
+print("InvTF Version: \t", __version__)
+print("-------------------------------")
 
 
 
@@ -94,11 +98,9 @@ class Generator(keras.Sequential):
 		"""
 		logdet = 0.
 
-
 		for layer in self.layers: 
 			if isinstance(layer, tf.keras.layers.InputLayer): 	continue 
 			logdet += layer.log_det()
-
 			
 		return logdet
 
@@ -129,7 +131,20 @@ class Generator(keras.Sequential):
 
 	def loss(self, y_true, y_pred):	 
 		#	computes average negative log likelihood in bits per dimension. 
-		return self.loss_log_det(y_true, y_pred) + self.loss_log_latent_density(y_true, y_pred)
+		return self.loss_log_det(y_true, y_pred) + self.loss_log_latent_density(y_true, y_pred) + self.loss_log_var_dequant(y_true, y_pred)
+
+	def loss_log_var_dequant(self, y_true, y_pred): 
+		vardeqloss = 0
+		for layer in self.layers: 
+			print(layer, layer.input_shape)
+			if isinstance(layer, invtf.dequantize.VariationalDequantize): 
+				vardeqloss = layer.loss()
+				break
+
+		d			= tf.cast(tf.reduce_prod(y_pred.shape[1:]), 		tf.float32)
+		norm		= d * np.log(2.) 
+		vardeqloss 	= vardeqloss / norm
+		return - vardeqloss
 
 	def loss_log_det(self, y_true, y_pred): 
 		# divide by /d to get per dimension and divide by log(2) to get from log base E to log base 2. 
@@ -157,8 +172,9 @@ class Generator(keras.Sequential):
 		def lg_det(y_true, y_pred): 	return self.loss_log_det(y_true, y_pred)
 		def lg_latent(y_true, y_pred): 	return self.loss_log_latent_density(y_true, y_pred)
 		def lg_perfect(y_true, y_pred): return self.loss_log_latent_density(y_true, self.latent.sample(n=1000))
+		def lg_vardeqloss(y_true, y_pred): return self.loss_log_var_dequant(y_true, y_pred)
 
-		kwargs['metrics'] = [lg_det, lg_latent, lg_perfect]
+		kwargs['metrics'] = [lg_det, lg_latent, lg_perfect, lg_vardeqloss]
 
 		super(Generator, self).compile(**kwargs)
 
@@ -166,9 +182,8 @@ class Generator(keras.Sequential):
 		return super(Generator, self).fit(X, y=X, **kwargs)	# if user specifies batch_size here, get upset. 
 
 	def rec(self, X): 
-
-		X, Zs = self.predict(X, dequantize=False) # TODO: deactivate dequantize. 
-		rec = self.predict_inv(X, Zs)
+		X, Zs 	= self.predict(X, dequantize=False) # TODO: deactivate dequantize. 
+		rec 	= self.predict_inv(X, Zs)
 		return rec
 
 	def check_inv(self, X, precision=10**(-5)): 
@@ -310,5 +325,20 @@ class Generator(keras.Sequential):
 			self._track_layers(self._layers)
 
 		self._layer_call_argspecs[layer] = tf_inspect.getfullargspec(layer.call)
+
+
+	def check_init(self, X): 
+		fig, ax = plt.subplots(2, 1)
+		img_shape = X.shape[1:]
+		fig.canvas.manager.window.wm_geometry("+2500+0")
+
+		ax[0].imshow(X[0].reshape(img_shape)/255)
+
+		enc = self.predict(X[:1])[0].numpy() # don't take Z's, not multiscale architecture for now. 
+
+		ax[1].imshow(enc.reshape(img_shape))
+
+		plt.pause(.1)
+
 
 

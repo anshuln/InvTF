@@ -42,6 +42,12 @@
 		Caused by tensorflow code, not sure how to make it be silent. 
 
 
+	Potential other tests:
+	
+		Use other flow models and see how likely they deem data produced by models trained here. 
+		The likelihood might not be meaningful, however, it might show potential bugs if there are 
+		very big differences. 
+
 """
 import unittest
 #from test.shape 		import *

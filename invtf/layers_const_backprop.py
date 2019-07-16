@@ -6,8 +6,6 @@ from invtf.override import print_summary
 from invtf.coupling_strategy import *
 
 
-
-
 """
 	Known issue with multi-scale architecture. 
 	The log-det computations normalizes wrt full dimension. 
@@ -270,13 +268,17 @@ class AdditiveCoupling(keras.Sequential):
 
 
 	def build(self, input_shape):
+		_, d = input_shape # assumes vectorized input
 
-		self.layers[0].build(input_shape=(None, 28**2/2))
-		out_dim = self.layers[0].compute_output_shape(input_shape=(None, 28**2/2))
+		self.layers[0].build(input_shape=(None, d//2))
+		out_dim = self.layers[0].compute_output_shape(input_shape=(None, d//2))
 
 		for layer in self.layers[1:]:  
 			layer.build(input_shape=out_dim)
 			out_dim = layer.compute_output_shape(input_shape=out_dim)
+
+		super(AdditiveCoupling, self).build(input_shape)
+		self.built = True
 
 	def call_(self, X): 
 		for layer in self.layers: 
@@ -351,7 +353,7 @@ class AdditiveCoupling(keras.Sequential):
 """
 	Try different techniques: I'm implementing the simplest case, just reshape to desired shape. 
 	TODO: Implement the following Squeeze strategies: 
-		- RealNVP
+		- RealNVP: original Squeeze, different to what we do below.
 		- Downscale images, e.g. alternate pixels and have 4 lower dim images and stack them. 
 		- ... 
 """
@@ -365,6 +367,21 @@ class Squeeze(LayerWithGrads):
 		return tf.reshape(X, [-1, self.w, self.h, self.c])
 		
 	def log_det(self): return tf.zeros((1,)) 
+
+
+class UnSqueeze(keras.layers.Layer): 
+
+	def call(self, X): 
+		n, self.w, self.h, self.c = X.shape
+		return tf.reshape(X, [-1, self.w*2, self.h*2, self.c//4])
+
+	def call_inv(self, X): 
+		return tf.reshape(X, [-1, self.w, self.h, self.c])
+		
+	def log_det(self): return 0. 
+
+
+
 
 
 # TODO: for now assumes target is +-1, refactor to support any target. 
@@ -435,6 +452,7 @@ class Conv3DCirc(LayerWithGrads):
 		return X
 
 
+
 	def call_inv(self, X): 
 		X = tf.cast(X, dtype=tf.complex64)
 		X = tf.signal.fft3d(X * self.scale ) # self.scale correctly 
@@ -462,6 +480,7 @@ class Conv3DCirc(LayerWithGrads):
 		self.w_real     = self.add_variable(name="w_real",shape=input_shape[1:], initializer=identitiy_initializer_real, trainable=True)
 		# self.w    = tf.cast(self.w_real, dtype=tf.complex64)  #hacky way to initialize real w and actual w, since tf does weird stuff if 'variable' is modified
 		# self.w    = tf.signal.fft3d(self.w / self.scale)
+		super(Conv3DCirc, self).build(input_shape)
 		self.built = True
 		
 

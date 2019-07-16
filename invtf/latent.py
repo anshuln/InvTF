@@ -13,7 +13,7 @@ import numpy as np
 
 class Normal():  # assume no mean so far.  ;;; Can we make this infer dimension somehow?
 
-	def __init__(self, d, mean=0, std=1): 
+	def __init__(self, d=32*32*3, mean=0, std=1): 
 		self.d		= d
 		self.mean 	= mean
 		self.std 	= std

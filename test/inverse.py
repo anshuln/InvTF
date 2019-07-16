@@ -47,7 +47,7 @@ class TestInverse(unittest.TestCase):
 		d = 32*32*3
 		g = invtf.Generator(invtf.latent.Normal(d)) 
 		g.add(keras.layers.InputLayer(input_shape=(32,32,3)))
-		g.add(invtf.ActNorm()) # initialize not like ones so it becomes zero. 
+		g.add(invtf.ActNorm()) 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 		g.predict(X[:1])
 		self.assertInverse(g, X)
@@ -57,10 +57,10 @@ class TestInverse(unittest.TestCase):
 		d = 32*32*3
 		g = invtf.Generator(invtf.latent.Normal(d)) 
 		g.add(keras.layers.InputLayer(input_shape=(32,32,3)))
-		g.add(invtf.ActNorm()) # initialize not like ones so it becomes zero. 
+		g.add(invtf.ActNorm()) 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 		g.predict(X[:1])
-		g.fit(X[:1], verbose=False, epochs=5) # these are actually relateively far apart! 
+		g.fit(X[:1], verbose=False) 
 		self.assertInverse(g, X)
 
 
@@ -69,7 +69,7 @@ class TestInverse(unittest.TestCase):
 		d = 32*32*3
 		g = invtf.Generator(invtf.latent.Normal(d)) 
 		g.add(keras.layers.InputLayer(input_shape=(32,32,3)))
-		g.add(invtf.Conv3DCirc()) # initialize not like ones so it becomes zero. 
+		g.add(invtf.Conv3DCirc()) 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 		g.predict(X[:1])
 		self.assertInverse(g, X)
@@ -79,9 +79,9 @@ class TestInverse(unittest.TestCase):
 		d = 32*32*3
 		g = invtf.Generator(invtf.latent.Normal(d)) 
 		g.add(keras.layers.InputLayer(input_shape=(32,32,3)))
-		g.add(invtf.Conv3DCirc()) # initialize not like ones so it becomes zero. 
+		g.add(invtf.Conv3DCirc()) 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
-		g.fit(X[:1]) 
+		g.fit(X[:1], epochs=1, verbose=False) 
 		self.assertInverse(g, X)
 
 
@@ -103,7 +103,7 @@ class TestInverse(unittest.TestCase):
 		g.add(invtf.Inv1x1Conv()) 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 		g.predict(X[:1])
-		g.fit(X[:1], epochs=5, verbose=False)
+		g.fit(X[:1], epochs=1, verbose=False)
 		self.assertInverse(g, X)
 		
 
