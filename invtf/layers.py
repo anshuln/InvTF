@@ -5,6 +5,30 @@ from tensorflow.keras.layers import ReLU
 from invtf.override import print_summary
 from invtf.coupling_strategy import *
 
+class ReduceNumBits(keras.layers.Layer): 
+	"""
+		Glow used 5 bit variant of CelebA. 
+		Flow++ had 3 and 5 bit variants of ImageNet. 
+		These lower bit variants allow better dimensionality reduction. 
+		This layer should be the first within the model. 
+
+		This also means subsequent normalization needs to divide by less. 
+		In this sense likelihood is incomparable between different number of bits. 
+	"""
+	def __init__(self, bits=5):  # assumes input has 8 bits. 
+		self.bits = 5
+		super(ReduceNumBits, self).__init__()
+
+	def call(self, X): 
+		X = tf.dtypes.cast(X, dtype=np.float32)
+		return X // ( 2**(8-self.bits) )
+
+	def call_inv(self, Z): return Z
+
+	def log_det(self): return 0. 
+		
+
+
 class ActNorm(keras.layers.Layer): 
 
 	"""
@@ -570,6 +594,21 @@ class Conv3DCirc(keras.layers.Layer):
 
 	def compute_output_shape(self, input_shape): 
 		return tf.TensorShape(input_shape[1:])
+
+
+class ResidualConv3DCirc(Conv3DCirc): 
+
+	def call(self, X): 
+
+		return X + super(ResidualConv3DCirc, self).call(X)
+
+	# use fixed point iteration algorithm from iResNet, and add regularizer / clipper so
+	# largest eigenvalue is no more than 1.
+	def call_inv(self, X):  raise NotImplementedError()
+
+	# use the derivations in iResNet to fix this. 
+	def log_det(self, X): raise NotImplementedError()
+
 
 
 class Reshape(keras.layers.Layer):

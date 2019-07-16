@@ -89,6 +89,23 @@ class TestInverse(unittest.TestCase):
 		enc = g.predict(X[:1])[0]
 		self.assertInverse(g, X)
 
+	def test_natural_bijection_twice_with_bit_layer(self): 
+		X = TestInverse.X  # this is 8 bit, convert to 5 bit by divide by 2**3
+		d = 32*32*3
+		g = invtf.Generator(invtf.latent.Normal(d)) 
+		g.add(keras.layers.InputLayer(input_shape=(32,32,3)))
+		g.add(invtf.layers.Squeeze()) 
+		g.add(invtf.layers.ReduceNumBits(bits=5))
+		g.add(invtf.discrete_bijections.NaturalBijection()) 
+		g.add(invtf.discrete_bijections.NaturalBijection()) 
+		g.compile(optimizer=keras.optimizers.Adam(0.001))
+		enc = g.predict(X[:1])[0]
+
+		rec = g.rec(X)
+		A = np.allclose(rec, X//2**3, atol=1, rtol=0.1) # assumes data is in bytes. 
+
+		self.assertTrue(A)
+
 	def test_3dconv_init(self): 
 		X = TestInverse.X 
 		d = 32*32*3
