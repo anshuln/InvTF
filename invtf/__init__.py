@@ -327,18 +327,32 @@ class Generator(keras.Sequential):
 		self._layer_call_argspecs[layer] = tf_inspect.getfullargspec(layer.call)
 
 
-	def check_init(self, X): 
-		fig, ax = plt.subplots(2, 1)
+	def check_init(self, X):  # somethign fishy is going on here. 
+		fig, ax = plt.subplots(3, 1)
 		img_shape = X.shape[1:]
 		fig.canvas.manager.window.wm_geometry("+2500+0")
 
-		ax[0].imshow(X[0].reshape(img_shape)/255)
+		"""ax[0].imshow(X[0].reshape(img_shape)/255)
 
 		enc = self.predict(X[:1])[0].numpy() # don't take Z's, not multiscale architecture for now. 
 
 		ax[1].imshow(enc.reshape(img_shape))
 
-		plt.pause(.1)
+		plt.pause(.1)"""
+
+		fake = self.sample(1, fix_latent=True)
+
+		ax[0].imshow(fake.reshape(img_shape)/255)
+		ax[0].set_title("Fake")
+
+		ax[1].imshow(X[0].reshape(img_shape)/255)
+		ax[1].set_title("Real")
+
+		ax[2].imshow(self.rec(X[:1]).reshape(img_shape)/255)
+		ax[2].set_title("Reconstruction")
+		plt.tight_layout()
+
+
 
 
 	def init(self, X):  # predict and compute normalization. 
