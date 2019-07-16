@@ -106,6 +106,52 @@ class TestInverse(unittest.TestCase):
 
 		self.assertTrue(A)
 
+
+	def test_additive_relu(self): 
+		X = TestInverse.X 
+		d = 32*32*3
+		g = invtf.Generator(invtf.latent.Normal(d)) 
+		g.add(keras.layers.InputLayer(input_shape=(32,32,3)))
+		g.add(invtf.Squeeze())
+		# they add / subtract on the same part of input and thus cancel each other out. 
+		g.add(invtf.layers.AdditiveCouplingReLU(part=0, sign=+1, strategy=invtf.coupling_strategy.SplitChannelsStrategy())) 
+		g.add(invtf.layers.AdditiveCouplingReLU(part=0, sign=-1, strategy=invtf.coupling_strategy.SplitChannelsStrategy())) 
+		g.compile(optimizer=keras.optimizers.Adam(0.001))
+		enc = g.predict(X[:1])[0]
+		self.assertInverse(g, X)
+
+	def test_additive_relu_part1(self): 
+		X = TestInverse.X 
+		d = 32*32*3
+		g = invtf.Generator(invtf.latent.Normal(d)) 
+		g.add(keras.layers.InputLayer(input_shape=(32,32,3)))
+		g.add(invtf.Squeeze())
+		g.add(invtf.layers.AdditiveCouplingReLU(part=1, sign=+1, strategy=invtf.coupling_strategy.SplitChannelsStrategy())) 
+		g.add(invtf.layers.AdditiveCouplingReLU(part=1, sign=-1, strategy=invtf.coupling_strategy.SplitChannelsStrategy())) 
+		g.compile(optimizer=keras.optimizers.Adam(0.001))
+		enc = g.predict(X[:1])[0]
+		self.assertInverse(g, X)
+
+
+	"""def test_additive_relu_circ3d(self): 
+		X = TestInverse.X  
+		d = 32*32*3
+		g = invtf.Generator(invtf.latent.Normal(d)) 
+		g.add(keras.layers.InputLayer(input_shape=(32,32,3)))
+		g.add(invtf.Squeeze())
+
+		g.add(invtf.layers.AdditiveCouplingReLU(part=0, sign=+1, strategy=invtf.coupling_strategy.SplitChannelsStrategy()))
+		g.add(invtf.layers.Conv3DCirc())
+		g.add(invtf.layers.AdditiveCouplingReLU(part=0, sign=-1, strategy=invtf.coupling_strategy.SplitChannelsStrategy()))
+
+		g.compile(optimizer=keras.optimizers.Adam(0.001))
+		enc = g.predict(X[:1])[0]
+		self.assertInverse(g, X)"""
+
+
+
+
+
 	def test_3dconv_init(self): 
 		X = TestInverse.X 
 		d = 32*32*3
