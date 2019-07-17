@@ -1,7 +1,6 @@
 import invtf 				
 from invtf.visualize 	import visualize_training_2D
 from invtf.layers 		import *
-from invtf.dataset 		import *
 from invtf.dequantize 	import * 
 from tensorflow			import keras
 from tensorflow.keras 	import Sequential
@@ -10,6 +9,7 @@ from tensorflow.keras.layers import ReLU, Dense, Flatten, Reshape, Conv2D
 from tensorflow.keras.models import Sequential
 
 import invtf.latent as latent
+
 
 
 class NICE(): 
@@ -80,7 +80,7 @@ class NICE():
 
 		g.compile(optimizer=keras.optimizers.Adam(0.001, beta_1=0.9, beta_2=0.01, epsilon=10**(-4)))
 
-		g.predict(X[:2])
+		g.init(X[:100])
 
 		return g
 
@@ -151,7 +151,7 @@ class RealNVP():
 
 		g.compile(optimizer=keras.optimizers.Adam(0.0001))
 
-		g.predict(X[:2])
+		g.init(X[:1000])
 
 		ac.summary()
 
@@ -285,7 +285,7 @@ class Glow():
 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 
-		g.predict(X[:2])
+		g.init(X[:1000]) # initialize actnorm data dependently. 
 
 		if verbose: 
 			for layer in g.layers: 
@@ -381,8 +381,7 @@ class FlowPP():  # flow++ ;; - attention and logit coupling layers.
 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 
-		g.predict(X[:2])
-		#g.init_actnorm(X[:1000) # how much does this change loss? 
+		g.init_actnorm(X[:1000) # how much does this change loss? 
 
 		if verbose: 
 			for layer in g.layers: 
