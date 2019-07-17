@@ -1,7 +1,6 @@
 import invtf 				
 from invtf.visualize 	import visualize_training_2D
 from invtf.layers 		import *
-from invtf.dataset 		import *
 from invtf.dequantize 	import * 
 from tensorflow			import keras
 from tensorflow.keras 	import Sequential
@@ -10,6 +9,14 @@ from tensorflow.keras.layers import ReLU, Dense, Flatten, Reshape, Conv2D
 from tensorflow.keras.models import Sequential
 
 import invtf.latent as latent
+
+
+class PredefinedModel(): 
+
+	"""
+		Have example with use case similar to Generator class. 
+	"""
+
 
 
 class NICE(): 
@@ -80,7 +87,7 @@ class NICE():
 
 		g.compile(optimizer=keras.optimizers.Adam(0.001, beta_1=0.9, beta_2=0.01, epsilon=10**(-4)))
 
-		g.predict(X[:2])
+		g.init(X[:100])
 
 		return g
 
@@ -151,7 +158,7 @@ class RealNVP():
 
 		g.compile(optimizer=keras.optimizers.Adam(0.0001))
 
-		g.predict(X[:2])
+		g.init(X[:1000])
 
 		ac.summary()
 
@@ -178,33 +185,35 @@ class Conv3D():
 
 		# Pre-process steps. 
 		g.add(keras.layers.InputLayer(input_shape=input_shape))
-		g.add(UniformDequantize	(input_shape=input_shape)) 
-		g.add(Normalize			(input_shape=input_shape)) 
 
-		# Build model using additive coupling layers. 
+
+		# seems to work, but it is a bit unstable. 
+		#g.add(ReduceNumBits(bits=3))
 		g.add(Squeeze())
 		c = 4*c
+		#g.add(invtf.discrete_bijections.NaturalBijection()) 
+		#c = c//2
 
-		for i in range(0, 4): 
+		g.add(UniformDequantize	()) 
+		g.add(Normalize			())  
+
+		# Build model using additive coupling layers. 
+
+		for i in range(0, 2): 
 
 			for j in range(4): 
 
-				g.add(ActNorm())
-				g.add(Inv1x1Conv()) 
-		
+				#g.add(ActNorm())
+				#g.add(Inv1x1Conv()) 
+				g.add(Conv3DCirc())  # change to residual.
+				g.add(AdditiveCouplingReLU(part=j%2, sign=+1, strategy=SplitChannelsStrategy()))
+
 				g.add(Conv3DCirc()) 
+				g.add(AdditiveCouplingReLU(part=j%2, sign=-1, strategy=SplitChannelsStrategy()))
 
-				ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
-		
-				ac.add(Conv2D(width, kernel_size=(3,3), activation="relu", padding="SAME", 
-								kernel_initializer=default_initializer, bias_initializer="zeros")) 
-				ac.add(Conv2D(width, kernel_size=(1,1), activation="relu", padding="SAME", 
-								kernel_initializer=default_initializer, bias_initializer="zeros"))
-				ac.add(Conv2D(c, kernel_size=(3,3), 				   padding="SAME",
-								kernel_initializer="zeros", bias_initializer="ones"))  # they add 2 here and apply sigmoid. 
-				
-
-				g.add(ac) 
+				#ac = AffineCoupling(part=j%2, strategy=SplitChannelsStrategy())
+				#ac.add( keras.layers.ReLU() ) # needs to be larger; maybe use additive here? 
+				#g.add(ac) 
 			
 			#g.add(Squeeze())
 			#c = c * 4
@@ -212,9 +221,11 @@ class Conv3D():
 			#g.add(MultiScale()) # adds directly to output. For simplicity just add half of channels. 
 			#d = d//2
 
+		g.add(Conv3DCirc()) 
+
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 
-		g.predict(X[:2])
+		g.init(X[:1000])
 
 		if verbose: 
 			for layer in g.layers: 
@@ -224,8 +235,6 @@ class Conv3D():
 				if isinstance(layer, VariationalDequantize): layer.summary()
 
 		return g
-
-
 
 
 class Glow(): 
@@ -283,7 +292,7 @@ class Glow():
 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 
-		g.predict(X[:2])
+		g.init(X[:1000]) # initialize actnorm data dependently. 
 
 		if verbose: 
 			for layer in g.layers: 
@@ -296,9 +305,18 @@ class Glow():
 
 
 
-class InvResNet(): 
+class ConvInvResNet(): 
 
-	def __init__(self): pass 
+	
+	def model(X):
+
+		# instead of 3D use ND and see how different dimension change performance. 
+		# also, with resnet block, have maybe 
+		# 		y = sum_j conv_(jD) conv(x)
+
+		for _ in range(10000): # use O(1) memory trick. 
+			g.add(ResidualConv3DCirc()) # can only contract 
+			g.add(Conv3DCirc()) # is allowed to expand. 
 
 
 class FlowPP():  # flow++ ;; - attention and logit coupling layers. 
@@ -370,8 +388,7 @@ class FlowPP():  # flow++ ;; - attention and logit coupling layers.
 
 		g.compile(optimizer=keras.optimizers.Adam(0.001))
 
-		g.predict(X[:2])
-		#g.init_actnorm(X[:1000) # how much does this change loss? 
+		g.init_actnorm(X[:1000) # how much does this change loss? 
 
 		if verbose: 
 			for layer in g.layers: 

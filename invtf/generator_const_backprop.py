@@ -211,10 +211,11 @@ class Generator(keras.Sequential):
 
 		super(Generator, self).compile(**kwargs)
 
-	def compute_and_apply_gradients(self,X,optimizer=None):
+	def train_on_batch(self,X,optimizer=None):
 		'''
 		Computes gradients efficiently and updates weights
 		Returns - Loss on the batch
+		TODO - see keras.engine.train_generator.py , they use a similar function.
 		'''
 		x = self.call(X)        #I think putting this in context records all operations onto the tape, thereby destroying purpose of checkpointing...
 		last_layer = self.layers[-1]
@@ -249,7 +250,6 @@ class Generator(keras.Sequential):
 		X - Data to be fitted. Maybe one of the following-
 				tf.EagerTensor
 				np.ndarray
-				#TODO add support for tf.data.Dataset and tf.keras.Sequence
 		batch_size - Number of elements in each minibatch
 		verbose - Logging level
 		validation_split - Amount of data to be used for validation in each epoch
@@ -273,6 +273,7 @@ class Generator(keras.Sequential):
 		num_batches = X.shape[0] // batch_size
 		if steps_per_epoch == None:
 			steps_per_epoch = num_batches
+		val_count = 0
 
 		for j in epoch_gen:
 			if shuffle == True:
@@ -283,33 +284,88 @@ class Generator(keras.Sequential):
 				range_gen = tqdm(range_gen)
 			for i in range_gen:    
 				losses = []
-				loss = self.compute_and_apply_gradients(X[i*batch_size:(i+1)*(batch_size)],optimizer)
+				loss = self.train_on_batch(X[i*batch_size:(i+1)*(batch_size)],optimizer)
 				losses.append(loss.numpy())
 			loss = np.mean(losses)  
 			all_losses+=losses
 			to_print = 'Epoch: {}/{}, training_loss: {}'.format(j,epochs,loss)
-			if validation_data is not None:
+			if validation_data is not None and val_count%validation_freq==0:
 				val_loss = self.loss(validation_data)
 				to_print += ', val_loss: {}'.format(val_loss.numpy())	#TODO return val_loss somehow
 			if verbose == 2:
 				print(to_print)
-
+			val_count+=1
 		return all_losses
 
-	def fit_generator(self, generator,batches_per_epoch,epochs=1,optimizer=tf.optimizers.Adam(),**kwargs): 
+	def fit_generator(self, generator,steps_per_epoch=None,initial_epoch=0,
+		epochs=1,
+		verbose=1,validation_data=None,
+	    validation_freq=1,
+		shuffle=True,
+		max_queue_size=10,
+	    workers=1,
+	    use_multiprocessing=False,
+		optimizer=tf.optimizers.Adam(),
+		**kwargs): 
 		'''
 		Fits model on the data generator `generator
+		IMPORTANT - Please consider using invtf.data.load_image_dataset()
+		Args - 
+		generator - tf.data.Dataset, tf.keras.utils.Sequence or python generator
+		validation_data - same type as generator
+		steps_per_epoch - int, number of batches per epoch.
 		'''
-		#TODO add all other args from tf.keras.Model.fit_generator
+		#TODO add callbacks and history
 		all_losses = []
-		for j in range(epochs):
-			for i in tqdm(range(num_batches)):
+		if isinstance(generator,tf.keras.utils.Sequence):
+			enqueuer = tf.keras.utils.OrderedEnqueuer(generator,use_multiprocessing,shuffle)	
+			if steps_per_epoch == None:
+				steps_per_epoch = len(generator)	#TODO test this, see if it works for both Sequence and Dataset
+			enqueuer.start(workers=workers, max_queue_size=max_queue_size)
+			output_generator = enqueuer.get()				
+		elif isinstance(generator,tf.data.Dataset):
+			output_generator = iter(generator)
+		else:
+			enqueuer = tf.keras.utils.GeneratorEnqueuer(generator,use_multiprocessing)	# Can't shuffle here!
+			enqueuer.start(workers=workers, max_queue_size=max_queue_size)	
+			output_generator = enqueuer.get()	
+		if validation_data is not None:		#Assumption that validation data and generator are same type
+			if isinstance(generator,tf.keras.utils.Sequence):
+				val_enqueuer = tf.keras.utils.OrderedEnqueuer(validation_data,use_multiprocessing,shuffle)	
+				val_enqueuer.start(workers=workers, max_queue_size=max_queue_size)
+				val_generator = val_enqueuer.get()				
+			elif isinstance(generator,tf.data.Dataset):
+				val_generator = iter(val_generator)
+			else:
+				val_enqueuer = tf.keras.utils.GeneratorEnqueuer(validation_data,use_multiprocessing)	# Can't shuffle here!
+				val_enqueuer.start(workers=workers, max_queue_size=max_queue_size)	
+				val_generator = val_enqueuer.get()	
+
+		if steps_per_epoch == None:
+			raise ValueError("steps_per_epoch cannot be None with provided generator")
+		epoch_gen = range(initial_epoch,epochs)
+		if verbose == 1:
+			epoch_gen = tqdm(epoch_gen)
+		for j in epoch_gen:
+			range_gen = range(steps_per_epoch)
+			if verbose == 2:
+				range_gen = tqdm(range_gen)
+			for i in range_gen:
 				losses = []
-				loss = self.compute_and_apply_gradients(next(X),optimizer)
+				loss = self.train_on_batch(next(output_generator),optimizer)
 				losses.append(loss.numpy())
 			loss = np.mean(losses)  
-			print('Epoch: {}, loss: {}'.format(j,loss))
+			to_print = 'Epoch: {}/{}, training_loss: {}'.format(j,epochs,loss)
+			if validation_data is not None and val_count%validation_freq==0:
+				val_loss = self.loss(next(val_generator))
+				to_print += ', val_loss: {}'.format(val_loss.numpy())	#TODO return val_loss somehow
+			if verbose == 2:
+				print(to_print)
 			all_losses+=losses
+			val_count+=1
+        try:
+            if enqueuer is not None:
+                enqueuer.stop()			
 		return all_losses
 
 	def rec(self, X): 

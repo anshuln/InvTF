@@ -87,6 +87,7 @@ class TestGradients(unittest.TestCase):
 		g.add(Squeeze())
 		g.add(Conv3DCirc())
 		g.add(b)
+		g.add(Conv3DCirc())
 		# g.predict(X[:1])
 		self.assertGrad(g,X)		
 
