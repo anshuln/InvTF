@@ -2,53 +2,63 @@ import tensorflow as tf
 import tensorflow.keras as keras 
 import numpy as np
 
-"""
-	TODO:
-		1. Add mean to log_density of Normal (see wiki multi-variate-normal and do log of pdf)
-		2. Add mean and std to logistic, similarly as above, see wikipedia. 
-		3. Compare both to mean=0, std=1 case used in Nice. 
+class Latent(): 
+	"""
+		Invertible Generative Models assumes some latent distribution. 
+		This is typically Gaussian, but in principle, any distribution that 
+		support sampling and log density computations can be used. 
+	
+		For example, one could use the Logistic distribution as done in [1]. 
+		It is also possible to use another flow model as latent distribution. 
 
-"""
+		[1] https://arxiv.org/abs/1410.8516
+	"""
+	def log_density(self, X): 								raise NotImplementedError()
+	def sample(self, shape, fix_latent=False, std=1.0): 	raise NotImplementedError()
 
 
-class Normal():  # assume no mean so far.  ;;; Can we make this infer dimension somehow?
+class Normal(Latent):  
+	"""
+		Normal Distribution with zero mean and unit std by default. 
+	"""
 
-	def __init__(self, d=32*32*3, mean=0, std=1): 
-		self.d		= d
-		self.mean 	= mean
+	def __init__(self, std=1): 
 		self.std 	= std
 		self.latent = None
 
 	def log_density(self, X): 
-		# refactor a way such that if we have X.shape != (d, ) we update d? 
 		return tf.math.reduce_sum( -1/2 * (X**2/self.std**2 + tf.math.log(2*np.pi*self.std**2)) )
 
-	def sample(self, n=1000, fix_latent=False, shape=None): 
+	def sample(self, shape, fix_latent=False, std=self.std): 
+		if self.latent is None: 	self.latent = tf.random.normal(shape, 0, std)
+		elif not fix_latent: 		self.latent = tf.random.normal(shape, 0, std)
 
-		if shape is not None: 		return np.random.normal(0, 1, shape).astype(np.float32)
-
-		if self.latent is None: 	self.latent = np.random.normal(0, 1, (n, self.d)).astype(np.float32)
-		elif not fix_latent: 		self.latent = np.random.normal(0, 1, (n, self.d)).astype(np.float32)
-
-		return self.latent[:n]
+		return self.latent
 
 
-class Logistic(): # see NICE page 5 section 3.4 
+class Logistic(Latent): 
+	"""
+		Logistic Distribution with zero mean and unit std as used in [1]. 
 
-	def __init__(self, d):  
-		self.d = d
+		[1] https://arxiv.org/abs/1410.8516
+
+		Implementation comments: 
+			
+			Logistic distribution is not in tensorflow 2.0.0 beta so for now it 
+			is computed using numpy. We could also compute by transforming normal.
+			This would allow GPU only sampling. 
+	"""
+
+	def __init__(self):  
 		self.latent = None
 
 	def log_density(self, X):
 		return tf.math.reduce_sum( - tf.math.log(1 + tf.exp(X)) - tf.math.log(1 + tf.exp(-X)) )
 
-	def sample(self, n=1000, fix_latent=False, shape=None):	 # it seems logistic distribution is not in tensorflow 2.0.0 beta
+	def sample(self, shape, fix_latent=False, std=1.0):	 
+		if self.latent is None: 	self.latent = np.random.logistic(0, std, shape).astype(np.float32)
+		elif not fix_latent: 		self.latent = np.random.logistic(0, std, shape).astype(np.float32)
 
-		if shape is not None: 		return np.random.normal(0, 1, shape).astype(np.float32)
-
-		if self.latent is None: 	self.latent = np.random.logistic(0, 1, (n, self.d)).astype(np.float32)
-		elif not fix_latent: 		self.latent = np.random.logistic(0, 1, (n, self.d)).astype(np.float32)
-
-		return self.latent[:n]
+		return self.latent
 
 	
