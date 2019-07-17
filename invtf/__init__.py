@@ -110,6 +110,12 @@ class Generator(keras.Model):
 
 		----------------------------------------------------------------------------------------
 
+		Known-Issues:
+
+			(1) Each multi-scale level increases loss substantially. Currently, it is not clear
+			if this is caused by bad initialization or an error in the likelihood computations. 
+
+		----------------------------------------------------------------------------------------
 
 		References:
 
@@ -134,21 +140,29 @@ class Generator(keras.Model):
 
 	def predict(self, X, dequantize=True): 
 		"""
-			X:				input
-			dequantize: 	
+			Computes the encoding under the generative model of the input samples. 
 
-			Returns:		... 
+			Arguments: 
+
+				X:				Input samples, typically Numpy array.  
+
+				dequantize: 	Boolean. This allows the user to disable dequantization. This can be useful 
+								when testing the numerical stability of inverse computations, since the 
+								dequantization has no inverse. 
+
+			Returns:		
+				Numpy array X of encoding and a list Zs containing numpy arrays of intermediate 
+				multi-scale outputs. 
+
 		"""
-
 		Zs = [] 
 
 		for layer in self.layers: 
 
-			# allow deactivating dequenatize 
-			# refactor to just look into name of layer and skip if it has dequantize in name or something like that. 
-			if not dequantize and isinstance(layer, invtf.dequantize.UniformDequantize): 		continue	
-			if not dequantize and isinstance(layer, invtf.dequantize.VariationalDequantize): 	continue	
+			# Allow deactivating de-quantize. 
+			if not dequantize and isinstance(layer, invtf.dequantize.Dequantize): 		continue	
 
+			# Handle multi-scale intermediate output. 
 			if isinstance(layer, invtf.layers.MultiScale): 
 				X, Z = layer.call(X)
 				Zs.append(Z)
@@ -158,8 +172,16 @@ class Generator(keras.Model):
 
 		return X, Zs
 
-	def predict_inv(self, X, Z=None): 
+	def predict_inv(self, X, Zs=None): 
 		"""
+			Reconstructs encodings (X, Zs) under the generative model. 
+
+			Arguments: 
+
+				X, Zs:			NumPy arrays with different levels of encoding. 
+
+			Returns:		
+				Numpy array X of reconstructions. 
 
 		"""
 		n = X.shape[0]
@@ -167,7 +189,7 @@ class Generator(keras.Model):
 		for layer in self.layers[::-1]: 
 
 			if isinstance(layer, invtf.layers.MultiScale): 
-				X = layer.call_inv(X, Z.pop())
+				X = layer.call_inv(X, Zs.pop())
 
 			else: 
 				X = layer.call_inv(X)
@@ -175,27 +197,117 @@ class Generator(keras.Model):
 		return np.array(X)
 
 
-	def log_det(self):	
-		"""
-			Assumes a forward pass has just been run. 
-			It uses 'log_det' from affine coupling computed during forward pass. 
-		"""
-		logdet = 0.
-
-		for layer in self.layers: 
-			if isinstance(layer, tf.keras.layers.InputLayer): 	continue 
-			logdet += layer.log_det()
-			
-		return logdet
-
-
 
 
 	def loss(self, y_true, y_pred):	 
-		#	computes average negative log likelihood in bits per dimension. 
+		"""
+			Computes negative log likelihood in bits per dimension. If the model uses Variational 
+			Dequantization it incorporates this into the loss function, see equation (12) from [1]. 
+
+			Arguments: 
+
+				y_true:			Dummy variable. It is required by Keras API, see [2]. 
+								but the likelihood computations does not use it.
+				y_pred:			The encoding of the model as a single numpy array, *NOT* (X, Zs). 
+
+			Returns:		
+				The negative log likelihood of the model on data X such that encodings y_pred 
+				is the output of predict(X). 
+
+
+			Comments: 
+
+				It often useful to inspect the different components of the loss function, for example,
+				how big is the jacobian term compared to the latent density term. To ensure these
+				are normalized with the output of this function, the final loss, the normalization
+				(computing as bit per dimensions) happens inside each of these functions separately. 
+
+			
+			[1] Flow++: Improving Flow-Based Generative Models with 			https://arxiv.org/pdf/1902.00275
+				Variational Dequantization and Architecture Design
+			[2] Usage of loss functions											https://keras.io/losses/
+
+		"""
 		return self.loss_log_det(y_true, y_pred) + self.loss_log_latent_density(y_true, y_pred) + self.loss_log_var_dequant(y_true, y_pred)
 
+
+	def compile(self, optimizer=keras.optimizers.Adam(0.001), **kwargs):	
+		"""
+			Compiles the model to minimize negative log likelihood. 
+			The different terms of the loss function is added as metric, 
+			this is often useful information during training. 
+		"""
+
+		if "loss" in kwargs.keys(): raise Exception("Currently only supports training with maximum likelihood. Please leave loss unspecified. ")
+
+		kwargs['optimizer'] = optimizer
+		kwargs['loss'] 		= self.loss 
+
+		def lg_det(y_true, y_pred): 	return self.loss_log_det(y_true, y_pred)
+		def lg_latent(y_true, y_pred): 	return self.loss_log_latent_density(y_true, y_pred)
+		def lg_perfect(y_true, y_pred): return self.loss_log_latent_density(y_true, self.latent.sample(shape=tf.shape(y_pred))) 
+		def lg_vardeqloss(y_true, y_pred): return self.loss_log_var_dequant(y_true, y_pred)
+
+		kwargs['metrics'] = [lg_det, lg_latent, lg_perfect, lg_vardeqloss]
+
+		super(Generator, self).compile(**kwargs)
+
+
+	def loss_log_det(self, y_true, y_pred): 
+		"""
+			Computes negative log determinant, the first term of the loss function. 
+			It is normalized to be in bits per dimension.
+
+		"""
+		d			= tf.cast(tf.reduce_prod(y_pred.shape[1:]), tf.float32)
+		norm		= d * np.log(2.) 
+
+		# Divide by /d to get per dimension. 
+		# Divide by log(2) to go from log base E (default in tensorflow) to log base 2. 
+		# https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/math/log
+		log_det 	= self.log_det() / norm
+
+		return 		- log_det  
+
+
+	def loss_log_latent_density(self, y_true, y_pred): 
+		"""
+			Computes log density of encoded data in latent space, the second term of the loss function. 
+			It is normalized to be in bits per dimension. 
+
+			Arguments: 
+
+				y_true:			Dummy variable. It is required by Keras API. 
+								but the likelihood computations does not use it.
+				y_pred:			The encoding of the model as a single numpy array, *NOT* (X, Zs). 
+
+			Returns:		
+				Log latent density of the encoded data in bits per dimension averaged over samples. 
+
+			Comments: 
+
+				The average over the mini-batch is done to balance this term with the log_det.
+				Alternatively, one could have scaled log_det by the size of the mini-batch. 
+			
+		"""
+
+		d			= tf.cast(tf.reduce_prod(y_pred.shape[1:]), 		tf.float32)
+		norm		= d * np.log(2.) 
+
+		# Divide by /d to get per dimension. 
+		# Divide by log(2) to go from log base E (default in tensorflow) to log base 2. 
+		# https://www.tensorflow.org/versions/r2.0/api_docs/python/tf/math/log
+		normal 		= self.latent.log_density(y_pred) / norm 
+		batch_size 	= tf.cast(tf.shape(y_pred)[0], 	tf.float32)
+		normal		= normal / batch_size
+		return 		- normal
+
+
 	def loss_log_var_dequant(self, y_true, y_pred): 
+		"""
+
+		"""
+		
 		vardeqloss = 0
 		for layer in self.layers: 
 			if isinstance(layer, invtf.dequantize.VariationalDequantize): 
@@ -207,23 +319,21 @@ class Generator(keras.Model):
 		vardeqloss 	= vardeqloss / norm
 		return - vardeqloss
 
-	def loss_log_det(self, y_true, y_pred): 
-		# divide by /d to get per dimension and divide by log(2) to get from log base E to log base 2. 
-		d			= tf.cast(tf.reduce_prod(y_pred.shape[1:]), 		tf.float32)
-		norm		= d * np.log(2.) 
-		log_det 	= self.log_det() / norm
-
-		return 		- log_det
 
 
-	def loss_log_latent_density(self, y_true, y_pred): 
-		# divide by /d to get per dimension and divide by log(2) to get from log base E to log base 2. 
-		batch_size 	= tf.cast(tf.shape(y_pred)[0], 	tf.float32)
-		d			= tf.cast(tf.reduce_prod(y_pred.shape[1:]), 		tf.float32)
-		norm		= d * np.log(2.) 
-		normal 		= self.latent.log_density(y_pred) / (norm * batch_size)
 
-		return 		- normal
+	def log_det(self):	
+		logdet = 0.
+
+		for layer in self.layers: 
+			if isinstance(layer, tf.keras.layers.InputLayer): 	continue 
+			logdet += layer.log_det()
+			
+		return logdet
+
+
+
+
 
 	def add(self, layer): 
 		"""
@@ -325,24 +435,6 @@ class Generator(keras.Model):
 
 
 
-	def compile(self, optimizer=keras.optimizers.Adam(0.001), **kwargs):	
-		"""
-
-		"""
-
-		if "loss" in kwargs.keys(): raise Exception("Currently only supports training with maximum likelihood. Please leave loss unspecified. ")
-
-		kwargs['optimizer'] = optimizer
-		kwargs['loss'] 		= self.loss 
-
-		def lg_det(y_true, y_pred): 	return self.loss_log_det(y_true, y_pred)
-		def lg_latent(y_true, y_pred): 	return self.loss_log_latent_density(y_true, y_pred)
-		def lg_perfect(y_true, y_pred): return self.loss_log_latent_density(y_true, self.latent.sample(shape=tf.shape(y_pred))) 
-		def lg_vardeqloss(y_true, y_pred): return self.loss_log_var_dequant(y_true, y_pred)
-
-		kwargs['metrics'] = [lg_det, lg_latent, lg_perfect, lg_vardeqloss]
-
-		super(Generator, self).compile(**kwargs)
 
 	def fit(self, X, **kwargs): 
 		"""
@@ -428,14 +520,6 @@ class Generator(keras.Model):
 		img_shape = X.shape[1:]
 		fig.canvas.manager.window.wm_geometry("+2500+0")
 
-		"""ax[0].imshow(X[0].reshape(img_shape)/255)
-
-		enc = self.predict(X[:1])[0].numpy() # don't take Z's, not multiscale architecture for now. 
-
-		ax[1].imshow(enc.reshape(img_shape))
-
-		plt.pause(.1)"""
-
 		fake = self.sample(1, fix_latent=True)
 
 		ax[0].imshow(fake.reshape(img_shape)/255)
@@ -447,9 +531,6 @@ class Generator(keras.Model):
 		ax[2].imshow(self.rec(X[:1]).reshape(img_shape)/255)
 		ax[2].set_title("Reconstruction")
 		plt.tight_layout()
-
-
-
 
 	def init(self, X):	 # TODO: consider changing this to build and call super(..).build(..) in end?
 		"""
