@@ -11,6 +11,13 @@ from tensorflow.keras.models import Sequential
 import invtf.latent as latent
 
 
+class PredefinedModel(): 
+
+	"""
+		Have example with use case similar to Generator class. 
+	"""
+
+
 
 class NICE(): 
 
