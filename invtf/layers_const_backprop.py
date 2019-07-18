@@ -49,7 +49,7 @@ class LayerWithGrads(keras.layers.Layer):
 			with tf.GradientTape() as tape:
 				reg = -regularizer()/scaling
 			grads_wrt_reg = tape.gradient(reg, self.trainable_variables)
-			grads = [a[0]+a[1] for a in zip(grads,grads_wrt_reg)]
+			grads = [a[0]+a[1] for a in zip(grads,grads_wrt_reg) if a[1] is not None]
 		return dy,grads
 
 class Linear(LayerWithGrads): 
@@ -710,22 +710,19 @@ class AffineCoupling(LayerWithGrads): # Sequential):
 			grads - gradients wrt weights
 		'''
 		#TODO check if log_det of AffineCouplingLayer depends needs a regularizer. -- It does
+		#TODO fix bug of incorrect dy
 		with tf.GradientTape(persistent=True) as tape:  #Since log_det is computed within call
 			tape.watch(x)
 			y_ = self.call(x)   #Required to register the operation onto the gradient tape
 			reg = -self._log_det/scaling
 		grads_combined = tape.gradient(y_,[x]+self.trainable_variables,output_gradients=dy)
 		grads_wrt_reg = tape.gradient(reg,self.trainable_variables)
+		grads_of_inp = tape.gradient(reg,[x])
 		dy,grads = grads_combined[0],grads_combined[1:]
 		grads = [a[0]+a[1] for a in zip(grads,grads_wrt_reg)]
+		n       = tf.dtypes.cast(tf.shape(x)[0], tf.float32)
+		dy = [a[1]+a[0] for a in zip(dy,grads_of_inp)]	#TODO check this expression, seems numerically approximate
 		del tape    #Since tape was persistent, we need this
-
-
-		# if regularizer is not None:
-		#   with tf.GradientTape() as tape:
-		#       reg = -regularizer()
-		#   grads_wrt_reg = tape.gradient(reg, self.trainable_variables)
-		#TODO fix bug of incorrect dy
 		return dy,grads
 
 class ReduceNumBits(LayerWithGrads): 
