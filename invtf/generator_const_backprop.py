@@ -363,9 +363,11 @@ class Generator(keras.Sequential):
 				print(to_print)
 			all_losses+=losses
 			val_count+=1
-        try:
-            if enqueuer is not None:
-                enqueuer.stop()			
+		try:
+			if enqueuer is not None:
+				enqueuer.stop()			
+		except:
+			pass
 		return all_losses
 
 	def rec(self, X): 

@@ -477,9 +477,9 @@ class MultiScale(keras.layers.Layer):
 
 
 class Conv3DCirc(LayerWithGrads): 
-"""
-	There's an issue with scaling, which intuitively makes step-size VERY small. 
-"""
+	"""
+		There's an issue with scaling, which intuitively makes step-size VERY small. 
+	"""
 
 	def __init__(self,trainable=True): 
 		self.built = False
